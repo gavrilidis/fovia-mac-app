@@ -28,6 +28,8 @@ export interface ScanProgress {
   processed: number;
   current_file: string;
   faces_found: number;
+  errors: number;
+  last_error: string;
 }
 
 export interface FaceGroup {

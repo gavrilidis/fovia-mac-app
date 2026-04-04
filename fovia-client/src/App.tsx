@@ -15,6 +15,8 @@ function App() {
     processed: 0,
     current_file: "",
     faces_found: 0,
+    errors: 0,
+    last_error: "",
   });
   const [faceGroups, setFaceGroups] = useState<FaceGroup[]>([]);
   const [error, setError] = useState<string | null>(null);
@@ -22,7 +24,7 @@ function App() {
   const handleFolderSelected = useCallback(async (folderPath: string) => {
     setView("progress");
     setError(null);
-    setProgress({ total_files: 0, processed: 0, current_file: "Starting...", faces_found: 0 });
+    setProgress({ total_files: 0, processed: 0, current_file: "Starting...", faces_found: 0, errors: 0, last_error: "" });
 
     try {
       const result = await invoke<ScanResult>("scan_folder", {
@@ -70,13 +72,13 @@ function App() {
     setView("dropzone");
     setFaceGroups([]);
     setError(null);
-    setProgress({ total_files: 0, processed: 0, current_file: "", faces_found: 0 });
+    setProgress({ total_files: 0, processed: 0, current_file: "", faces_found: 0, errors: 0, last_error: "" });
   }, []);
 
   return (
     <div className="flex h-screen w-screen flex-col bg-[var(--bg-primary)]">
       {error && (
-        <div className="flex items-center gap-2 bg-[var(--danger)]/15 px-4 py-2 text-sm text-[var(--danger)]">
+        <div className="flex items-center gap-2 bg-[var(--danger)]/15 px-6 py-3 text-sm text-[var(--danger)]">
           <svg className="h-4 w-4 flex-shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
             <path strokeLinecap="round" strokeLinejoin="round" d="M12 9v3.75m9-.75a9 9 0 11-18 0 9 9 0 0118 0zm-9 3.75h.008v.008H12v-.008z" />
           </svg>

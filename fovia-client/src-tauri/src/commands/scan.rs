@@ -16,6 +16,8 @@ pub struct ScanProgress {
     pub processed: usize,
     pub current_file: String,
     pub faces_found: usize,
+    pub errors: usize,
+    pub last_error: String,
 }
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
@@ -83,6 +85,8 @@ pub async fn scan_folder(app: AppHandle, folder_path: String) -> Result<ScanResu
     let api = ApiClient::new(API_BASE_URL);
     let mut all_faces: Vec<FaceEntry> = Vec::new();
     let mut processed = 0usize;
+    let mut error_count = 0usize;
+    let mut last_error = String::new();
 
     for chunk in raw_files.chunks(BATCH_SIZE) {
         let mut batch: Vec<(String, Vec<u8>)> = Vec::new();
@@ -117,6 +121,8 @@ pub async fn scan_folder(app: AppHandle, folder_path: String) -> Result<ScanResu
                         .to_string_lossy()
                         .to_string(),
                     faces_found: all_faces.len(),
+                    errors: error_count,
+                    last_error: last_error.clone(),
                 },
             );
         }
@@ -162,6 +168,8 @@ pub async fn scan_folder(app: AppHandle, folder_path: String) -> Result<ScanResu
             }
             Err(e) => {
                 log::error!("API batch error: {e}");
+                error_count += 1;
+                last_error = e;
             }
         }
     }

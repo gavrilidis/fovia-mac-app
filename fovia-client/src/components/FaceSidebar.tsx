@@ -14,17 +14,17 @@ export const FaceSidebar: React.FC<FaceSidebarProps> = ({
 }) => {
   return (
     <div className="flex h-full w-64 flex-shrink-0 flex-col border-r border-[var(--border)] bg-[var(--bg-secondary)]">
-      <div className="border-b border-[var(--border)] px-4 py-3">
+      <div className="border-b border-[var(--border)] px-5 py-4">
         <h3 className="text-sm font-semibold uppercase tracking-wider text-[var(--text-secondary)]">
           Faces ({groups.length})
         </h3>
       </div>
-      <div className="flex-1 overflow-y-auto">
+      <div className="flex-1 overflow-y-auto py-1">
         {groups.map((group) => (
           <button
             key={group.id}
             onClick={() => onSelectGroup(group.id)}
-            className={`flex w-full items-center gap-3 px-4 py-3 transition-colors ${
+            className={`flex w-full items-center gap-3 px-5 py-3.5 transition-colors ${
               selectedGroupId === group.id
                 ? "bg-[var(--accent)]/15 border-l-2 border-l-[var(--accent)]"
                 : "hover:bg-[var(--bg-tertiary)]"

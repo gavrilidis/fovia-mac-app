@@ -17,14 +17,14 @@ export const PhotoGrid: React.FC<PhotoGridProps> = ({ photos, personLabel }) => 
 
   return (
     <div className="flex flex-1 flex-col overflow-hidden">
-      <div className="flex items-center justify-between border-b border-[var(--border)] px-6 py-3">
+      <div className="flex items-center justify-between border-b border-[var(--border)] px-6 py-4">
         <h2 className="text-lg font-semibold text-[var(--text-primary)]">{personLabel}</h2>
         <span className="text-sm text-[var(--text-secondary)]">
           {photos.length} photo{photos.length !== 1 ? "s" : ""}
         </span>
       </div>
-      <div className="flex-1 overflow-y-auto p-4">
-        <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5">
+      <div className="flex-1 overflow-y-auto p-5">
+        <div className="grid grid-cols-2 gap-4 sm:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5">
           {photos.map((photo) => (
             <div
               key={photo.face_id}
@@ -53,7 +53,7 @@ export const PhotoGrid: React.FC<PhotoGridProps> = ({ photos, personLabel }) => 
                   </svg>
                 </div>
               )}
-              <div className="absolute inset-x-0 bottom-0 bg-gradient-to-t from-black/70 to-transparent p-3 opacity-0 transition-opacity duration-200 group-hover:opacity-100">
+              <div className="absolute inset-x-0 bottom-0 bg-gradient-to-t from-black/70 to-transparent px-3 pb-3 pt-6 opacity-0 transition-opacity duration-200 group-hover:opacity-100">
                 <p className="truncate text-xs text-white">
                   {photo.file_path.split("/").pop()}
                 </p>

@@ -44,7 +44,19 @@ export const ProgressView: React.FC<ProgressViewProps> = ({ progress }) => {
               {progress.current_file}
             </span>
           </div>
+          {progress.errors > 0 && (
+            <div className="flex justify-between text-[var(--text-secondary)]">
+              <span>Errors</span>
+              <span className="text-[var(--danger)]">{progress.errors}</span>
+            </div>
+          )}
         </div>
+
+        {progress.last_error && (
+          <div className="mt-4 rounded-lg bg-[var(--danger)]/10 px-4 py-3 text-xs text-[var(--danger)]">
+            {progress.last_error}
+          </div>
+        )}
       </div>
     </div>
   );

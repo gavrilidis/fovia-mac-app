@@ -18,8 +18,8 @@ export const GalleryView: React.FC<GalleryViewProps> = ({ groups, onReset }) => 
 
   return (
     <div className="flex h-full w-full flex-col">
-      <div className="flex items-center justify-between border-b border-[var(--border)] bg-[var(--bg-secondary)] px-4 py-2.5">
-        <div className="flex items-center gap-3">
+      <div className="flex items-center justify-between border-b border-[var(--border)] bg-[var(--bg-secondary)] px-6 py-3.5">
+        <div className="flex items-center gap-4">
           <h1 className="text-base font-semibold text-[var(--text-primary)]">Fovia</h1>
           <span className="text-xs text-[var(--text-secondary)]">
             {groups.reduce((sum, g) => sum + g.members.length, 0)} faces in {groups.length} groups
@@ -27,7 +27,7 @@ export const GalleryView: React.FC<GalleryViewProps> = ({ groups, onReset }) => 
         </div>
         <button
           onClick={onReset}
-          className="rounded-md px-3 py-1.5 text-xs font-medium text-[var(--text-secondary)] transition-colors hover:bg-[var(--bg-tertiary)] hover:text-[var(--text-primary)]"
+          className="rounded-lg px-4 py-2 text-xs font-medium text-[var(--text-secondary)] transition-colors hover:bg-[var(--bg-tertiary)] hover:text-[var(--text-primary)]"
         >
           New Scan
         </button>

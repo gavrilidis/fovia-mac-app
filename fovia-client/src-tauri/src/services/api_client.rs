@@ -25,6 +25,27 @@ pub struct BatchResponse {
     pub total_faces_detected: usize,
 }
 
+fn mime_for_filename(filename: &str) -> &'static str {
+    let lower = filename.to_lowercase();
+    if lower.ends_with(".png") {
+        "image/png"
+    } else if lower.ends_with(".webp") {
+        "image/webp"
+    } else if lower.ends_with(".gif") {
+        "image/gif"
+    } else if lower.ends_with(".bmp") {
+        "image/bmp"
+    } else if lower.ends_with(".tiff") || lower.ends_with(".tif") {
+        "image/tiff"
+    } else if lower.ends_with(".heic") || lower.ends_with(".heif") {
+        "image/heic"
+    } else if lower.ends_with(".avif") {
+        "image/avif"
+    } else {
+        "image/jpeg"
+    }
+}
+
 pub struct ApiClient {
     client: reqwest::Client,
     base_url: String,
@@ -33,21 +54,25 @@ pub struct ApiClient {
 impl ApiClient {
     pub fn new(base_url: &str) -> Self {
         Self {
-            client: reqwest::Client::new(),
+            client: reqwest::Client::builder()
+                .timeout(std::time::Duration::from_secs(120))
+                .build()
+                .unwrap_or_default(),
             base_url: base_url.to_string(),
         }
     }
 
     pub async fn extract_faces(
         &self,
-        jpeg_batch: &[(String, Vec<u8>)],
+        image_batch: &[(String, Vec<u8>)],
     ) -> Result<BatchResponse, String> {
         let mut form = multipart::Form::new();
 
-        for (filename, data) in jpeg_batch {
+        for (filename, data) in image_batch {
+            let mime = mime_for_filename(filename);
             let part = multipart::Part::bytes(data.clone())
                 .file_name(filename.clone())
-                .mime_str("image/jpeg")
+                .mime_str(mime)
                 .map_err(|e| format!("Failed to create multipart part: {e}"))?;
             form = form.part("files", part);
         }
