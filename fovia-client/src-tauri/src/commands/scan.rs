@@ -23,6 +23,8 @@ pub struct ScanProgress {
     pub last_error: String,
     /// "scanning" | "compressing" | "detecting"
     pub phase: String,
+    /// Number of files read/compressed so far (tracks pre-processing progress)
+    pub files_read: usize,
 }
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
@@ -62,6 +64,10 @@ pub fn list_volumes() -> Vec<VolumeInfo> {
         .iter()
         .filter_map(|disk| {
             let mount = disk.mount_point().to_string_lossy().to_string();
+            // Skip macOS internal system volumes
+            if mount.starts_with("/System/Volumes") {
+                return None;
+            }
             // Deduplicate by mount point
             if !seen.insert(mount.clone()) {
                 return None;
@@ -167,6 +173,7 @@ pub async fn scan_folder(app: AppHandle, folder_path: String) -> Result<ScanResu
                 errors: error_count,
                 last_error: last_error.clone(),
                 phase: read_phase.to_string(),
+                files_read: file_idx,
             },
         );
 
@@ -202,6 +209,7 @@ pub async fn scan_folder(app: AppHandle, folder_path: String) -> Result<ScanResu
                     errors: error_count,
                     last_error: last_error.clone(),
                     phase: "detecting".to_string(),
+                    files_read: file_idx + 1,
                 },
             );
 
@@ -260,6 +268,7 @@ pub async fn scan_folder(app: AppHandle, folder_path: String) -> Result<ScanResu
                     errors: error_count,
                     last_error: last_error.clone(),
                     phase: "scanning".to_string(),
+                    files_read: file_idx + 1,
                 },
             );
 

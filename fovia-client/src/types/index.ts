@@ -31,6 +31,7 @@ export interface ScanProgress {
   errors: number;
   last_error: string;
   phase: "scanning" | "compressing" | "detecting";
+  files_read: number;
 }
 
 export interface FaceGroup {

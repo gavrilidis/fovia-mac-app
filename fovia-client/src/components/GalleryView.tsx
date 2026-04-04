@@ -18,7 +18,6 @@ export const GalleryView: React.FC<GalleryViewProps> = ({ groups, onReset }) => 
   const selectedGroup = groups.find((g) => g.id === selectedGroupId) || null;
   const selectedIndex = selectedGroup ? groups.indexOf(selectedGroup) : -1;
 
-  // Clear selection when switching face groups
   const handleSelectGroup = useCallback((groupId: string) => {
     setSelectedGroupId(groupId);
     setSelectedIds(new Set());
@@ -51,21 +50,26 @@ export const GalleryView: React.FC<GalleryViewProps> = ({ groups, onReset }) => 
   return (
     <div className="flex h-full w-full flex-col">
       {/* Toolbar */}
-      <div className="flex items-center justify-between border-b border-[var(--border)] bg-[var(--bg-secondary)] px-6 py-3">
-        <div className="flex items-center gap-4">
-          <h1 className="text-base font-bold tracking-tight text-[var(--text-primary)]">Fovia</h1>
+      <div className="flex items-center justify-between border-b border-[var(--border)] bg-[var(--bg-secondary)] px-7 py-4">
+        {/* Left: branding + stats */}
+        <div className="flex items-center gap-5">
+          <h1 className="text-[15px] font-bold tracking-tight text-[var(--text-primary)]">
+            Fovia
+          </h1>
           <div className="h-4 w-px bg-[var(--border)]" />
-          <span className="text-xs tabular-nums text-[var(--text-secondary)]">
+          <span className="text-[12px] tabular-nums text-[var(--text-secondary)]">
             {groups.reduce((sum, g) => sum + g.members.length, 0)} faces in {groups.length} groups
           </span>
         </div>
-        <div className="flex items-center gap-2">
+
+        {/* Right: action buttons */}
+        <div className="flex items-center gap-3">
           {selectedIds.size > 0 && (
             <button
               onClick={handleRevealInFinder}
-              className="flex items-center gap-2 rounded-lg bg-[var(--accent)] px-4 py-2 text-xs font-medium text-white shadow-sm transition-all hover:bg-[var(--accent-hover)] active:scale-[0.98]"
+              className="flex items-center justify-center gap-2.5 rounded-xl bg-[var(--accent)] px-6 py-3 text-[13px] font-medium text-white shadow-sm transition-all duration-150 hover:bg-[var(--accent-hover)] active:scale-[0.97]"
             >
-              <svg className="h-3.5 w-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+              <svg className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
                 <path
                   strokeLinecap="round"
                   strokeLinejoin="round"
@@ -77,9 +81,9 @@ export const GalleryView: React.FC<GalleryViewProps> = ({ groups, onReset }) => 
           )}
           <button
             onClick={onReset}
-            className="flex items-center gap-2 rounded-lg border border-[var(--border)] px-4 py-2 text-xs font-medium text-[var(--text-secondary)] transition-all hover:border-[var(--text-secondary)]/30 hover:bg-[var(--bg-tertiary)] hover:text-[var(--text-primary)]"
+            className="flex items-center justify-center gap-2.5 rounded-xl border border-[var(--border)] px-6 py-3 text-[13px] font-medium text-[var(--text-secondary)] transition-all duration-150 hover:border-[var(--text-secondary)]/30 hover:bg-[var(--bg-tertiary)] hover:text-[var(--text-primary)]"
           >
-            <svg className="h-3.5 w-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+            <svg className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
               <path
                 strokeLinecap="round"
                 strokeLinejoin="round"
@@ -90,6 +94,8 @@ export const GalleryView: React.FC<GalleryViewProps> = ({ groups, onReset }) => 
           </button>
         </div>
       </div>
+
+      {/* Content area */}
       <div className="flex flex-1 overflow-hidden">
         <FaceSidebar
           groups={groups}

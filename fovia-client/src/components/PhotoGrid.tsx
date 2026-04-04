@@ -32,7 +32,6 @@ const PhotoCard: React.FC<{
     const ch = container.clientHeight;
     if (nw === 0 || nh === 0) return;
 
-    // object-cover: scales to fill + centers overflow
     const scale = Math.max(cw / nw, ch / nh);
     const offsetX = (nw * scale - cw) / 2;
     const offsetY = (nh * scale - ch) / 2;
@@ -56,10 +55,10 @@ const PhotoCard: React.FC<{
   return (
     <div
       ref={containerRef}
-      className={`group relative aspect-square cursor-pointer overflow-hidden rounded-xl bg-[var(--bg-tertiary)] shadow-md shadow-black/20 ring-1 ${
+      className={`group relative aspect-square cursor-pointer overflow-hidden rounded-2xl bg-[var(--bg-tertiary)] shadow-md shadow-black/20 ring-1 transition-all duration-150 ${
         isSelected
-          ? "ring-2 ring-[var(--accent)]"
-          : "ring-white/5"
+          ? "ring-2 ring-[var(--accent)] ring-offset-2 ring-offset-[var(--bg-primary)]"
+          : "ring-white/5 hover:ring-white/10"
       }`}
       onDoubleClick={handleDoubleClick}
     >
@@ -104,7 +103,7 @@ const PhotoCard: React.FC<{
           e.stopPropagation();
           onToggleSelect();
         }}
-        className={`absolute left-2.5 top-2.5 flex h-6 w-6 items-center justify-center rounded-md border transition-all ${
+        className={`absolute left-3 top-3 flex h-7 w-7 items-center justify-center rounded-lg border transition-all duration-150 ${
           isSelected
             ? "border-[var(--accent)] bg-[var(--accent)] text-white"
             : "border-white/40 bg-black/40 text-transparent opacity-0 group-hover:opacity-100"
@@ -116,11 +115,11 @@ const PhotoCard: React.FC<{
       </button>
 
       {/* Hover overlay */}
-      <div className="absolute inset-x-0 bottom-0 bg-gradient-to-t from-black/70 to-transparent px-3 pb-3 pt-6 opacity-0 transition-opacity duration-200 group-hover:opacity-100">
-        <p className="truncate text-xs text-white">
+      <div className="absolute inset-x-0 bottom-0 bg-gradient-to-t from-black/70 to-transparent px-4 pb-4 pt-8 opacity-0 transition-opacity duration-200 group-hover:opacity-100">
+        <p className="truncate text-[12px] font-medium text-white">
           {photo.file_path.split("/").pop()}
         </p>
-        <p className="text-xs text-white/60">
+        <p className="mt-0.5 text-[11px] text-white/60">
           Score: {(photo.detection_score * 100).toFixed(0)}%
         </p>
       </div>
@@ -139,13 +138,13 @@ export const PhotoGrid: React.FC<PhotoGridProps> = ({
 }) => {
   if (photos.length === 0) {
     return (
-      <div className="flex h-full flex-1 flex-col items-center justify-center gap-3">
+      <div className="flex h-full flex-1 flex-col items-center justify-center gap-4 p-8">
         <svg
-          className="h-12 w-12 text-[var(--text-secondary)]/40"
+          className="h-14 w-14 text-[var(--text-secondary)]/30"
           fill="none"
           viewBox="0 0 24 24"
           stroke="currentColor"
-          strokeWidth={1}
+          strokeWidth={0.8}
         >
           <path
             strokeLinecap="round"
@@ -153,21 +152,26 @@ export const PhotoGrid: React.FC<PhotoGridProps> = ({
             d="M15.75 6a3.75 3.75 0 11-7.5 0 3.75 3.75 0 017.5 0zM4.501 20.118a7.5 7.5 0 0114.998 0A17.933 17.933 0 0112 21.75c-2.676 0-5.216-.584-7.499-1.632z"
           />
         </svg>
-        <p className="text-sm text-[var(--text-secondary)]">Select a person to view their photos</p>
+        <p className="text-[13px] text-[var(--text-secondary)]">
+          Select a person to view their photos
+        </p>
       </div>
     );
   }
 
   return (
     <div className="flex flex-1 flex-col overflow-hidden">
-      <div className="flex items-center justify-between px-6 py-4">
-        <h2 className="text-base font-semibold text-[var(--text-primary)]">{personLabel}</h2>
-        <span className="rounded-md bg-[var(--bg-tertiary)] px-2.5 py-1 text-xs tabular-nums text-[var(--text-secondary)]">
+      {/* Person header */}
+      <div className="flex items-center justify-between px-8 py-6">
+        <h2 className="text-[15px] font-semibold text-[var(--text-primary)]">{personLabel}</h2>
+        <span className="rounded-lg bg-[var(--bg-tertiary)] px-3 py-1.5 text-[11px] tabular-nums font-medium text-[var(--text-secondary)]">
           {photos.length} photo{photos.length !== 1 ? "s" : ""}
         </span>
       </div>
-      <div className="flex-1 overflow-y-auto px-6 pb-6">
-        <div className="grid grid-cols-2 gap-4 sm:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5">
+
+      {/* Grid */}
+      <div className="flex-1 overflow-y-auto px-8 pb-8">
+        <div className="grid grid-cols-2 gap-5 sm:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5">
           {photos.map((photo) => (
             <PhotoCard
               key={photo.face_id}

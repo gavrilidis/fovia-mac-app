@@ -13,70 +13,80 @@ export const FaceSidebar: React.FC<FaceSidebarProps> = ({
   onSelectGroup,
 }) => {
   return (
-    <div className="flex h-full w-60 flex-shrink-0 flex-col border-r border-[var(--border)] bg-[var(--bg-secondary)]">
-      <div className="px-5 py-4">
-        <h3 className="text-xs font-semibold uppercase tracking-widest text-[var(--text-secondary)]">
-          Faces
-          <span className="ml-2 inline-flex h-5 min-w-5 items-center justify-center rounded-full bg-[var(--bg-tertiary)] px-1.5 text-xs tabular-nums font-normal">
+    <div className="flex h-full w-[272px] flex-shrink-0 flex-col border-r border-[var(--border)] bg-[var(--bg-secondary)]">
+      {/* Header */}
+      <div className="px-6 pb-3 pt-6">
+        <div className="flex items-center gap-3">
+          <h3 className="text-[11px] font-semibold uppercase tracking-[0.15em] text-[var(--text-secondary)]">
+            Faces
+          </h3>
+          <span className="inline-flex h-[22px] min-w-[22px] items-center justify-center rounded-full bg-[var(--bg-tertiary)] px-2 text-[11px] tabular-nums font-medium text-[var(--text-secondary)]">
             {groups.length}
           </span>
-        </h3>
+        </div>
       </div>
-      <div className="flex-1 overflow-y-auto px-2 pb-2">
-        {groups.map((group, idx) => (
-          <button
-            key={group.id}
-            onClick={() => onSelectGroup(group.id)}
-            className={`flex w-full items-center gap-3 rounded-lg px-3 py-3 transition-all ${
-              selectedGroupId === group.id
-                ? "bg-[var(--accent)]/15 shadow-sm"
-                : "hover:bg-[var(--bg-tertiary)]"
-            }`}
-          >
-            <div
-              className={`h-10 w-10 flex-shrink-0 overflow-hidden rounded-full ring-2 ${
+
+      {/* Face list */}
+      <div className="flex-1 overflow-y-auto px-3 pb-4">
+        <div className="flex flex-col gap-1">
+          {groups.map((group, idx) => (
+            <button
+              key={group.id}
+              onClick={() => onSelectGroup(group.id)}
+              className={`flex w-full items-center gap-4 rounded-xl px-4 py-3.5 transition-all duration-150 ${
                 selectedGroupId === group.id
-                  ? "ring-[var(--accent)]"
-                  : "ring-transparent"
-              } bg-[var(--bg-tertiary)]`}
+                  ? "bg-[var(--accent)]/12"
+                  : "hover:bg-[var(--bg-tertiary)]/60"
+              }`}
             >
-              {group.representative.preview_base64 ? (
-                <img
-                  src={`data:image/jpeg;base64,${group.representative.preview_base64}`}
-                  alt="Face"
-                  className="h-full w-full object-cover"
-                  style={{
-                    objectPosition: `${(group.representative.bbox_x1 / 6000) * 100}% ${(group.representative.bbox_y1 / 4000) * 100}%`,
-                  }}
-                />
-              ) : (
-                <div className="flex h-full w-full items-center justify-center">
-                  <svg
-                    className="h-5 w-5 text-[var(--text-secondary)]"
-                    fill="none"
-                    viewBox="0 0 24 24"
-                    stroke="currentColor"
-                    strokeWidth={1.5}
-                  >
-                    <path
-                      strokeLinecap="round"
-                      strokeLinejoin="round"
-                      d="M15.75 6a3.75 3.75 0 11-7.5 0 3.75 3.75 0 017.5 0zM4.501 20.118a7.5 7.5 0 0114.998 0A17.933 17.933 0 0112 21.75c-2.676 0-5.216-.584-7.499-1.632z"
-                    />
-                  </svg>
+              {/* Avatar */}
+              <div
+                className={`h-11 w-11 flex-shrink-0 overflow-hidden rounded-full ring-2 transition-all ${
+                  selectedGroupId === group.id
+                    ? "ring-[var(--accent)] ring-offset-2 ring-offset-[var(--bg-secondary)]"
+                    : "ring-transparent"
+                } bg-[var(--bg-tertiary)]`}
+              >
+                {group.representative.preview_base64 ? (
+                  <img
+                    src={`data:image/jpeg;base64,${group.representative.preview_base64}`}
+                    alt="Face"
+                    className="h-full w-full object-cover"
+                    style={{
+                      objectPosition: `${(group.representative.bbox_x1 / 6000) * 100}% ${(group.representative.bbox_y1 / 4000) * 100}%`,
+                    }}
+                  />
+                ) : (
+                  <div className="flex h-full w-full items-center justify-center">
+                    <svg
+                      className="h-5 w-5 text-[var(--text-secondary)]"
+                      fill="none"
+                      viewBox="0 0 24 24"
+                      stroke="currentColor"
+                      strokeWidth={1.5}
+                    >
+                      <path
+                        strokeLinecap="round"
+                        strokeLinejoin="round"
+                        d="M15.75 6a3.75 3.75 0 11-7.5 0 3.75 3.75 0 017.5 0zM4.501 20.118a7.5 7.5 0 0114.998 0A17.933 17.933 0 0112 21.75c-2.676 0-5.216-.584-7.499-1.632z"
+                      />
+                    </svg>
+                  </div>
+                )}
+              </div>
+
+              {/* Label */}
+              <div className="min-w-0 text-left">
+                <div className="truncate text-[13px] font-medium text-[var(--text-primary)]">
+                  Person {idx + 1}
                 </div>
-              )}
-            </div>
-            <div className="min-w-0 text-left">
-              <div className="truncate text-sm font-medium text-[var(--text-primary)]">
-                Person {idx + 1}
+                <div className="mt-1 text-[11px] tabular-nums text-[var(--text-secondary)]">
+                  {group.members.length} photo{group.members.length !== 1 ? "s" : ""}
+                </div>
               </div>
-              <div className="mt-0.5 text-xs tabular-nums text-[var(--text-secondary)]">
-                {group.members.length} photo{group.members.length !== 1 ? "s" : ""}
-              </div>
-            </div>
-          </button>
-        ))}
+            </button>
+          ))}
+        </div>
       </div>
     </div>
   );
