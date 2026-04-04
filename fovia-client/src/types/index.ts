@@ -30,7 +30,7 @@ export interface ScanProgress {
   faces_found: number;
   errors: number;
   last_error: string;
-  phase: "scanning" | "detecting";
+  phase: "scanning" | "compressing" | "detecting";
 }
 
 export interface FaceGroup {

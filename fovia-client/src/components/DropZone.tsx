@@ -121,15 +121,15 @@ export const DropZone: React.FC<DropZoneProps> = ({ onFolderSelected }) => {
       )}
 
       {/* Main content */}
-      <div className="flex flex-1 flex-col items-center justify-center gap-10 p-10">
+      <div className="flex flex-1 flex-col items-center justify-center gap-8 p-12">
         {/* Hero area */}
-        <div className="flex flex-col items-center gap-3">
+        <div className="flex flex-col items-center gap-4">
           <svg
-            className="h-14 w-14 text-[var(--text-secondary)]/60"
+            className="h-16 w-16 text-[var(--text-secondary)]/40"
             fill="none"
             viewBox="0 0 24 24"
             stroke="currentColor"
-            strokeWidth={1}
+            strokeWidth={0.8}
           >
             <path
               strokeLinecap="round"
@@ -137,12 +137,12 @@ export const DropZone: React.FC<DropZoneProps> = ({ onFolderSelected }) => {
               d="M2.25 15.75l5.159-5.159a2.25 2.25 0 013.182 0l5.159 5.159m-1.5-1.5l1.409-1.409a2.25 2.25 0 013.182 0l2.909 2.909M3.75 21h16.5a2.25 2.25 0 002.25-2.25V5.25a2.25 2.25 0 00-2.25-2.25H3.75A2.25 2.25 0 001.5 5.25v13.5A2.25 2.25 0 003.75 21z"
             />
           </svg>
-          <h1 className="text-2xl font-bold text-[var(--text-primary)]">Fovia</h1>
-          <p className="max-w-sm text-center text-sm leading-relaxed text-[var(--text-secondary)]">
+          <h1 className="text-3xl font-bold tracking-tight text-[var(--text-primary)]">Fovia</h1>
+          <p className="max-w-md text-center text-sm leading-relaxed text-[var(--text-secondary)]">
             Drag a photo folder anywhere on this window, browse for a folder, or select a connected
             drive below.
           </p>
-          <p className="text-xs text-[var(--text-secondary)]/60">
+          <p className="mt-1 text-xs text-[var(--text-secondary)]/50">
             CR2, ARW, NEF, DNG, ORF, RW2, RAF, JPG, PNG, HEIC, TIFF, WebP, AVIF
           </p>
         </div>
@@ -150,9 +150,9 @@ export const DropZone: React.FC<DropZoneProps> = ({ onFolderSelected }) => {
         {/* Browse button */}
         <button
           onClick={handleBrowse}
-          className="flex items-center gap-2.5 rounded-xl bg-[var(--accent)] px-7 py-3 text-sm font-semibold text-white shadow-lg shadow-[var(--accent)]/20 transition-all hover:bg-[var(--accent-hover)] hover:shadow-xl hover:shadow-[var(--accent)]/30 active:scale-[0.98]"
+          className="mt-2 flex items-center gap-3 rounded-xl bg-[var(--accent)] px-8 py-3.5 text-sm font-semibold text-white shadow-lg shadow-[var(--accent)]/20 transition-all hover:bg-[var(--accent-hover)] hover:shadow-xl hover:shadow-[var(--accent)]/30 active:scale-[0.98]"
         >
-          <svg className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+          <svg className="h-4.5 w-4.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
             <path
               strokeLinecap="round"
               strokeLinejoin="round"
@@ -164,44 +164,43 @@ export const DropZone: React.FC<DropZoneProps> = ({ onFolderSelected }) => {
 
         {/* Volumes / Drives */}
         {volumes.length > 0 && (
-          <div className="w-full max-w-2xl">
-            <h3 className="mb-3 text-xs font-semibold uppercase tracking-widest text-[var(--text-secondary)]/70">
+          <div className="mt-2 w-full max-w-xl">
+            <h3 className="mb-3 px-1 text-xs font-semibold uppercase tracking-widest text-[var(--text-secondary)]/60">
               Connected Drives
             </h3>
-            <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
+            <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
               {volumes.map((vol) => (
                 <button
                   key={vol.mount_point}
                   onClick={() => onFolderSelected(vol.mount_point)}
-                  className="group flex items-center gap-3.5 rounded-xl border border-[var(--border)] bg-[var(--bg-secondary)] px-4 py-3.5 text-left transition-all hover:border-[var(--accent)]/40 hover:bg-[var(--bg-tertiary)]"
+                  className="group flex items-center gap-4 rounded-xl border border-[var(--border)] bg-[var(--bg-secondary)] px-5 py-4 text-left transition-all hover:border-[var(--accent)]/40 hover:bg-[var(--bg-tertiary)]"
                 >
                   {/* Drive icon */}
-                  <div className="flex h-9 w-9 flex-shrink-0 items-center justify-center rounded-lg bg-[var(--bg-tertiary)] text-[var(--text-secondary)] group-hover:bg-[var(--accent)]/15 group-hover:text-[var(--accent)]">
+                  <div className="flex h-10 w-10 flex-shrink-0 items-center justify-center rounded-lg bg-[var(--bg-tertiary)] text-[var(--text-secondary)] group-hover:bg-[var(--accent)]/15 group-hover:text-[var(--accent)]">
                     {vol.is_removable ? (
-                      <svg className="h-4.5 w-4.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.5}>
+                      <svg className="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.5}>
                         <path strokeLinecap="round" strokeLinejoin="round" d="M21 7.5l-2.25-1.313M21 7.5v2.25m0-2.25l-2.25 1.313M3 7.5l2.25-1.313M3 7.5l2.25 1.313M3 7.5v2.25m9 3l2.25-1.313M12 12.75l-2.25-1.313M12 12.75V15m0 6.75l2.25-1.313M12 21.75V15m0 0l-2.25 1.313M3 16.5v2.25A2.25 2.25 0 005.25 21h13.5A2.25 2.25 0 0021 18.75V16.5" />
                       </svg>
                     ) : (
-                      <svg className="h-4.5 w-4.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.5}>
+                      <svg className="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.5}>
                         <path strokeLinecap="round" strokeLinejoin="round" d="M21.75 17.25v-.228a4.328 4.328 0 00-.773-2.468l-5.334-7.918a.75.75 0 00-1.245 0l-5.334 7.918a4.328 4.328 0 00-.773 2.468v.228a2.25 2.25 0 002.25 2.25h9A2.25 2.25 0 0021.75 17.25z" />
-                        <path strokeLinecap="round" strokeLinejoin="round" d="M6.586 11.25H2.25a2.25 2.25 0 00-2.25 2.25v4.5A2.25 2.25 0 002.25 20.25h1.732a4.5 4.5 0 002.634-.854l.155-.118" />
                       </svg>
                     )}
                   </div>
                   <div className="min-w-0 flex-1">
-                    <div className="flex items-center justify-between gap-2">
-                      <p className="truncate text-sm font-medium text-[var(--text-primary)]">
-                        {vol.name}
-                      </p>
-                      <span className="flex-shrink-0 text-xs text-[var(--text-secondary)]">
+                    <p className="truncate text-sm font-medium text-[var(--text-primary)]">
+                      {vol.name}
+                    </p>
+                    <div className="mt-2 flex items-center gap-3">
+                      <div className="h-1.5 flex-1 overflow-hidden rounded-full bg-[var(--bg-primary)]">
+                        <div
+                          className="h-full rounded-full bg-[var(--accent)] transition-all"
+                          style={{ width: `${usedPercent(vol)}%` }}
+                        />
+                      </div>
+                      <span className="flex-shrink-0 text-xs tabular-nums text-[var(--text-secondary)]">
                         {formatBytes(vol.available_bytes)} free
                       </span>
-                    </div>
-                    <div className="mt-1.5 h-1 w-full overflow-hidden rounded-full bg-[var(--bg-primary)]">
-                      <div
-                        className="h-full rounded-full bg-[var(--accent)] transition-all"
-                        style={{ width: `${usedPercent(vol)}%` }}
-                      />
                     </div>
                   </div>
                 </button>

@@ -1,3 +1,4 @@
+use std::collections::HashSet;
 use std::path::PathBuf;
 
 use base64::{engine::general_purpose::STANDARD as BASE64, Engine};
@@ -20,7 +21,7 @@ pub struct ScanProgress {
     pub faces_found: usize,
     pub errors: usize,
     pub last_error: String,
-    /// "scanning" while reading files, "detecting" while calling the API
+    /// "scanning" | "compressing" | "detecting"
     pub phase: String,
 }
 
@@ -56,20 +57,57 @@ pub struct VolumeInfo {
 #[tauri::command]
 pub fn list_volumes() -> Vec<VolumeInfo> {
     let disks = Disks::new_with_refreshed_list();
+    let mut seen = HashSet::new();
     disks
         .iter()
-        .map(|disk| {
-            let name = disk.name().to_string_lossy().to_string();
+        .filter_map(|disk| {
             let mount = disk.mount_point().to_string_lossy().to_string();
-            VolumeInfo {
+            // Deduplicate by mount point
+            if !seen.insert(mount.clone()) {
+                return None;
+            }
+            let name = disk.name().to_string_lossy().to_string();
+            Some(VolumeInfo {
                 name: if name.is_empty() { mount.clone() } else { name },
                 mount_point: mount,
                 total_bytes: disk.total_space(),
                 available_bytes: disk.available_space(),
                 is_removable: disk.is_removable(),
-            }
+            })
         })
         .collect()
+}
+
+/// Open a file with the default macOS application
+#[tauri::command]
+pub fn open_file(file_path: String) -> Result<(), String> {
+    std::process::Command::new("open")
+        .arg(&file_path)
+        .spawn()
+        .map_err(|e| format!("Failed to open file: {e}"))?;
+    Ok(())
+}
+
+/// Reveal selected files in macOS Finder
+#[tauri::command]
+pub fn reveal_in_finder(file_paths: Vec<String>) -> Result<(), String> {
+    if file_paths.is_empty() {
+        return Err("No files selected".to_string());
+    }
+    // Use osascript to reveal and select files in Finder
+    let apple_list: Vec<String> = file_paths
+        .iter()
+        .map(|p| format!("POSIX file \"{}\" as alias", p))
+        .collect();
+    let script = format!(
+        "tell application \"Finder\"\nactivate\nreveal {{{}}}\nend tell",
+        apple_list.join(", ")
+    );
+    std::process::Command::new("osascript")
+        .args(["-e", &script])
+        .output()
+        .map_err(|e| format!("Failed to open Finder: {e}"))?;
+    Ok(())
 }
 
 fn emit_progress(app: &AppHandle, progress: &ScanProgress) {
@@ -109,7 +147,16 @@ pub async fn scan_folder(app: AppHandle, folder_path: String) -> Result<ScanResu
             .to_string_lossy()
             .to_string();
 
-        // Emit "scanning" phase while reading from disk
+        let ext = path
+            .extension()
+            .and_then(|e| e.to_str())
+            .unwrap_or("")
+            .to_lowercase();
+        let is_raw = scanner::is_raw_extension(&ext);
+
+        // Show appropriate phase: "compressing" for standard images, "scanning" for RAW
+        let read_phase = if is_raw { "scanning" } else { "compressing" };
+
         emit_progress(
             &app,
             &ScanProgress {
@@ -119,7 +166,7 @@ pub async fn scan_folder(app: AppHandle, folder_path: String) -> Result<ScanResu
                 faces_found: all_faces.len(),
                 errors: error_count,
                 last_error: last_error.clone(),
-                phase: "scanning".to_string(),
+                phase: read_phase.to_string(),
             },
         );
 

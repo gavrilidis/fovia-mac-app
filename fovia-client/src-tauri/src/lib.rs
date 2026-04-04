@@ -20,7 +20,9 @@ pub fn run() {
         })
         .invoke_handler(tauri::generate_handler![
             commands::scan::scan_folder,
-            commands::scan::list_volumes
+            commands::scan::list_volumes,
+            commands::scan::reveal_in_finder,
+            commands::scan::open_file
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
