@@ -32,10 +32,10 @@ export const ProgressView: React.FC<ProgressViewProps> = ({ progress }) => {
       : "Extracting embedded previews from RAW files";
 
   return (
-    <div className="flex h-full w-full items-center justify-center px-20 py-24">
-      <div className="w-full max-w-[640px] rounded-3xl border border-[var(--border)] bg-[var(--bg-secondary)] p-16 shadow-2xl shadow-black/40">
+    <div className="flex h-full w-full items-center justify-center px-24 py-28">
+      <div className="w-full max-w-[660px] rounded-3xl border border-[var(--border)] bg-[var(--bg-secondary)] px-16 py-14 shadow-2xl shadow-black/40">
         {/* Phase indicator + percentage */}
-        <div className="mb-12 flex items-center justify-between gap-8">
+        <div className="mb-14 flex items-center justify-between gap-10">
           <div className="flex items-start gap-5">
             {/* Phase icon */}
             <div className="relative mt-0.5 flex h-11 w-11 flex-shrink-0 items-center justify-center">
@@ -78,7 +78,7 @@ export const ProgressView: React.FC<ProgressViewProps> = ({ progress }) => {
         </div>
 
         {/* Progress bar */}
-        <div className="mb-12 h-4 w-full overflow-hidden rounded-full bg-[var(--bg-tertiary)]">
+        <div className="mb-14 h-4 w-full overflow-hidden rounded-full bg-[var(--bg-tertiary)]">
           <div
             className={`h-full rounded-full transition-all duration-500 ease-out ${
               isDetecting
@@ -92,7 +92,7 @@ export const ProgressView: React.FC<ProgressViewProps> = ({ progress }) => {
         </div>
 
         {/* Stats grid */}
-        <div className="grid grid-cols-3 gap-6">
+        <div className="grid grid-cols-3 gap-7">
           <div className="rounded-2xl bg-[var(--bg-tertiary)]/50 px-7 py-7">
             <p className="text-[11px] font-medium uppercase tracking-wide text-[var(--text-secondary)]">
               Prepared

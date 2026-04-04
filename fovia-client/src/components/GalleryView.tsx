@@ -3,7 +3,7 @@ import { invoke } from "@tauri-apps/api/core";
 import type { FaceGroup } from "../types";
 import { FaceSidebar } from "./FaceSidebar";
 import { PhotoGrid } from "./PhotoGrid";
-import foviaLogoPng from "../assets/Logo.png";
+import { FoviaLogo } from "./FoviaLogo";
 
 interface GalleryViewProps {
   groups: FaceGroup[];
@@ -54,11 +54,11 @@ export const GalleryView: React.FC<GalleryViewProps> = ({ groups, onReset }) => 
       <div className="flex items-center justify-between border-b border-[var(--border)] bg-[var(--bg-secondary)] px-10 py-6">
         {/* Left: branding + stats */}
         <div className="flex items-center gap-5">
-          <img src={foviaLogoPng} alt="Fovia" className="h-9 w-9 object-contain" />
+          <FoviaLogo size={32} />
           <h1 className="text-[15px] font-bold tracking-tight text-[var(--text-primary)]">
             Fovia
           </h1>
-          <div className="h-5 w-px bg-[var(--border)]" />
+          <div className="mx-1 h-5 w-px bg-[var(--border)]" />
           <span className="text-[13px] tabular-nums text-[var(--text-secondary)]">
             {groups.reduce((sum, g) => sum + g.members.length, 0)} faces in {groups.length} groups
           </span>
@@ -98,7 +98,7 @@ export const GalleryView: React.FC<GalleryViewProps> = ({ groups, onReset }) => 
       </div>
 
       {/* Content area — gallery and sidebar with proper spacing */}
-      <div className="flex flex-1 overflow-hidden gap-0">
+      <div className="flex flex-1 overflow-hidden">
         <FaceSidebar
           groups={groups}
           selectedGroupId={selectedGroupId}

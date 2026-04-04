@@ -55,7 +55,7 @@ const PhotoCard: React.FC<{
   return (
     <div
       ref={containerRef}
-      className={`group relative aspect-square cursor-pointer overflow-hidden rounded-2xl bg-[var(--bg-tertiary)] p-1 shadow-md shadow-black/20 ring-1 transition-all duration-150 ${
+      className={`group relative aspect-square cursor-pointer overflow-hidden rounded-2xl bg-[var(--bg-tertiary)] shadow-md shadow-black/20 ring-1 transition-all duration-150 ${
         isSelected
           ? "ring-2 ring-[var(--accent)] ring-offset-3 ring-offset-[var(--bg-primary)]"
           : "ring-white/5 hover:ring-white/10"
@@ -115,7 +115,7 @@ const PhotoCard: React.FC<{
       </button>
 
       {/* Hover overlay */}
-      <div className="absolute inset-x-0 bottom-0 bg-gradient-to-t from-black/70 to-transparent px-4 pb-4 pt-8 opacity-0 transition-opacity duration-200 group-hover:opacity-100">
+      <div className="absolute inset-x-0 bottom-0 bg-gradient-to-t from-black/70 to-transparent px-5 pb-5 pt-10 opacity-0 transition-opacity duration-200 group-hover:opacity-100">
         <p className="truncate text-[12px] font-medium text-white">
           {photo.file_path.split("/").pop()}
         </p>
@@ -162,7 +162,7 @@ export const PhotoGrid: React.FC<PhotoGridProps> = ({
   return (
     <div className="flex flex-1 flex-col overflow-hidden">
       {/* Person header */}
-      <div className="flex items-center justify-between px-10 py-8">
+      <div className="flex items-center justify-between px-12 py-9">
         <h2 className="text-[16px] font-semibold text-[var(--text-primary)]">{personLabel}</h2>
         <span className="rounded-lg bg-[var(--bg-tertiary)] px-4 py-2 text-[12px] tabular-nums font-medium text-[var(--text-secondary)]">
           {photos.length} photo{photos.length !== 1 ? "s" : ""}
@@ -170,8 +170,8 @@ export const PhotoGrid: React.FC<PhotoGridProps> = ({
       </div>
 
       {/* Grid */}
-      <div className="flex-1 overflow-y-auto px-10 pb-10">
-        <div className="grid grid-cols-2 gap-6 sm:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5">
+      <div className="flex-1 overflow-y-auto px-12 pb-12">
+        <div className="grid grid-cols-2 gap-7 sm:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5">
           {photos.map((photo) => (
             <PhotoCard
               key={photo.face_id}
