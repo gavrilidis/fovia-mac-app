@@ -3,7 +3,7 @@ import { invoke } from "@tauri-apps/api/core";
 import type { FaceGroup } from "../types";
 import { FaceSidebar } from "./FaceSidebar";
 import { PhotoGrid } from "./PhotoGrid";
-import { FoviaLogo } from "./FoviaLogo";
+import foviaLogoSvg from "../assets/fovia_logo.svg";
 
 interface GalleryViewProps {
   groups: FaceGroup[];
@@ -51,15 +51,15 @@ export const GalleryView: React.FC<GalleryViewProps> = ({ groups, onReset }) => 
   return (
     <div className="flex h-full w-full flex-col">
       {/* Toolbar */}
-      <div className="flex items-center justify-between border-b border-[var(--border)] bg-[var(--bg-secondary)] px-8 py-5">
+      <div className="flex items-center justify-between border-b border-[var(--border)] bg-[var(--bg-secondary)] px-10 py-6">
         {/* Left: branding + stats */}
-        <div className="flex items-center gap-4">
-          <FoviaLogo size={28} />
+        <div className="flex items-center gap-5">
+          <img src={foviaLogoSvg} alt="Fovia" className="h-8 w-8" />
           <h1 className="text-[15px] font-bold tracking-tight text-[var(--text-primary)]">
             Fovia
           </h1>
-          <div className="h-4 w-px bg-[var(--border)]" />
-          <span className="text-[12px] tabular-nums text-[var(--text-secondary)]">
+          <div className="h-5 w-px bg-[var(--border)]" />
+          <span className="text-[13px] tabular-nums text-[var(--text-secondary)]">
             {groups.reduce((sum, g) => sum + g.members.length, 0)} faces in {groups.length} groups
           </span>
         </div>
@@ -69,7 +69,7 @@ export const GalleryView: React.FC<GalleryViewProps> = ({ groups, onReset }) => 
           {selectedIds.size > 0 && (
             <button
               onClick={handleRevealInFinder}
-              className="flex items-center justify-center gap-2.5 rounded-xl bg-[var(--accent)] px-6 py-3 text-[13px] font-medium text-white shadow-sm transition-all duration-150 hover:bg-[var(--accent-hover)] active:scale-[0.97]"
+              className="flex items-center justify-center gap-3 rounded-xl bg-[var(--accent)] px-7 py-3.5 text-[13px] font-medium text-white shadow-sm transition-all duration-150 hover:bg-[var(--accent-hover)] active:scale-[0.97]"
             >
               <svg className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
                 <path
@@ -83,7 +83,7 @@ export const GalleryView: React.FC<GalleryViewProps> = ({ groups, onReset }) => 
           )}
           <button
             onClick={onReset}
-            className="flex items-center justify-center gap-2.5 rounded-xl border border-[var(--border)] px-6 py-3 text-[13px] font-medium text-[var(--text-secondary)] transition-all duration-150 hover:border-[var(--text-secondary)]/30 hover:bg-[var(--bg-tertiary)] hover:text-[var(--text-primary)]"
+            className="flex items-center justify-center gap-3 rounded-xl border border-[var(--border)] px-7 py-3.5 text-[13px] font-medium text-[var(--text-secondary)] transition-all duration-150 hover:border-[var(--text-secondary)]/30 hover:bg-[var(--bg-tertiary)] hover:text-[var(--text-primary)]"
           >
             <svg className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
               <path
@@ -97,8 +97,8 @@ export const GalleryView: React.FC<GalleryViewProps> = ({ groups, onReset }) => 
         </div>
       </div>
 
-      {/* Content area */}
-      <div className="flex flex-1 overflow-hidden">
+      {/* Content area — gallery and sidebar with proper spacing */}
+      <div className="flex flex-1 overflow-hidden gap-0">
         <FaceSidebar
           groups={groups}
           selectedGroupId={selectedGroupId}

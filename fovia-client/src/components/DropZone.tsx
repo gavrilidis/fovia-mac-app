@@ -1,7 +1,7 @@
 import React, { useCallback, useEffect, useRef, useState } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import { open } from "@tauri-apps/plugin-dialog";
-import { FoviaLogo } from "./FoviaLogo";
+import foviaLogoSvg from "../assets/fovia_logo.svg";
 import type { VolumeInfo } from "../types";
 
 interface DropZoneProps {
@@ -121,31 +121,31 @@ export const DropZone: React.FC<DropZoneProps> = ({ onFolderSelected }) => {
       )}
 
       {/* Main content */}
-      <div className="flex flex-1 flex-col items-center justify-center gap-8 px-10 py-20">
-        {/* Logo + branding */}
-        <div className="flex flex-col items-center gap-5">
-          <FoviaLogo size={80} />
+      <div className="flex flex-1 flex-col items-center justify-center gap-12 px-16 py-24">
+        {/* Logo + branding — native SVG logo only, no duplicate text */}
+        <div className="flex flex-col items-center gap-8">
+          <img
+            src={foviaLogoSvg}
+            alt="Fovia"
+            className="h-28 w-28 drop-shadow-lg"
+          />
 
-          <h1 className="text-[22px] font-bold tracking-tight text-[var(--text-primary)]">
-            Fovia
-          </h1>
-
-          <p className="max-w-sm text-center text-[13px] leading-relaxed text-[var(--text-secondary)]">
+          <p className="max-w-md text-center text-[14px] leading-relaxed text-[var(--text-secondary)]">
             Drag a photo folder anywhere on this window, browse for a folder,
             or select a connected drive below.
           </p>
 
-          <p className="text-[11px] tracking-wide text-[var(--text-secondary)]/40">
+          <p className="text-[11px] tracking-widest text-[var(--text-secondary)]/40">
             CR2 / ARW / NEF / DNG / ORF / RW2 / RAF / JPG / PNG / HEIC / TIFF / WebP / AVIF
           </p>
         </div>
 
-        {/* Browse button */}
+        {/* Browse button — symmetrical padding, perfectly centered */}
         <button
           onClick={handleBrowse}
-          className="flex items-center justify-center gap-3 rounded-2xl bg-[var(--accent)] px-14 py-4 text-[14px] font-semibold text-white shadow-lg shadow-[var(--accent)]/25 transition-all duration-150 hover:bg-[var(--accent-hover)] hover:shadow-xl hover:shadow-[var(--accent)]/35 active:scale-[0.97]"
+          className="flex items-center justify-center gap-3.5 rounded-2xl bg-[var(--accent)] px-16 py-5 text-[15px] font-semibold text-white shadow-lg shadow-[var(--accent)]/25 transition-all duration-150 hover:bg-[var(--accent-hover)] hover:shadow-xl hover:shadow-[var(--accent)]/35 active:scale-[0.97]"
         >
-          <svg className="h-[18px] w-[18px]" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+          <svg className="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
             <path
               strokeLinecap="round"
               strokeLinejoin="round"
@@ -157,16 +157,16 @@ export const DropZone: React.FC<DropZoneProps> = ({ onFolderSelected }) => {
 
         {/* Connected drives */}
         {volumes.length > 0 && (
-          <div className="mt-4 w-full max-w-lg">
-            <h3 className="mb-5 px-1 text-[11px] font-semibold uppercase tracking-[0.15em] text-[var(--text-secondary)]/50">
+          <div className="mt-6 w-full max-w-xl">
+            <h3 className="mb-6 px-2 text-[11px] font-semibold uppercase tracking-[0.15em] text-[var(--text-secondary)]/50">
               Connected Drives
             </h3>
-            <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
+            <div className="grid grid-cols-1 gap-5 sm:grid-cols-2">
               {volumes.map((vol) => (
                 <button
                   key={vol.mount_point}
                   onClick={() => onFolderSelected(vol.mount_point)}
-                  className="group flex items-center gap-4 rounded-2xl border border-[var(--border)] bg-[var(--bg-secondary)] px-5 py-5 text-left transition-all duration-150 hover:border-[var(--accent)]/30 hover:bg-[var(--bg-tertiary)]"
+                  className="group flex items-center gap-5 rounded-2xl border border-[var(--border)] bg-[var(--bg-secondary)] px-6 py-6 text-left transition-all duration-150 hover:border-[var(--accent)]/30 hover:bg-[var(--bg-tertiary)]"
                 >
                   {/* Drive icon */}
                   <div className="flex h-11 w-11 flex-shrink-0 items-center justify-center rounded-xl bg-[var(--bg-tertiary)] text-[var(--text-secondary)] transition-colors group-hover:bg-[var(--accent)]/15 group-hover:text-[var(--accent)]">

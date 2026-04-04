@@ -13,9 +13,9 @@ export const FaceSidebar: React.FC<FaceSidebarProps> = ({
   onSelectGroup,
 }) => {
   return (
-    <div className="flex h-full w-[280px] flex-shrink-0 flex-col border-r border-[var(--border)] bg-[var(--bg-secondary)]">
+    <div className="flex h-full w-[300px] flex-shrink-0 flex-col border-r border-[var(--border)] bg-[var(--bg-secondary)]">
       {/* Header */}
-      <div className="px-7 pb-4 pt-7">
+      <div className="px-8 pb-5 pt-8">
         <div className="flex items-center gap-3">
           <h3 className="text-[11px] font-semibold uppercase tracking-[0.15em] text-[var(--text-secondary)]">
             Faces
@@ -27,13 +27,13 @@ export const FaceSidebar: React.FC<FaceSidebarProps> = ({
       </div>
 
       {/* Face list */}
-      <div className="flex-1 overflow-y-auto px-4 pb-5">
-        <div className="flex flex-col gap-1.5">
+      <div className="flex-1 overflow-y-auto px-5 pb-6">
+        <div className="flex flex-col gap-3">
           {groups.map((group, idx) => (
             <button
               key={group.id}
               onClick={() => onSelectGroup(group.id)}
-              className={`flex w-full items-center gap-4 rounded-xl px-4 py-4 transition-all duration-150 ${
+              className={`flex w-full items-center gap-5 rounded-xl px-5 py-5 transition-all duration-150 ${
                 selectedGroupId === group.id
                   ? "bg-[var(--accent)]/12"
                   : "hover:bg-[var(--bg-tertiary)]/60"
