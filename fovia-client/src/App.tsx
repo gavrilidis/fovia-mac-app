@@ -1,6 +1,7 @@
 import { useState, useCallback, useEffect } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
+import { getCurrentWebviewWindow } from "@tauri-apps/api/webviewWindow";
 import { DropZone } from "./components/DropZone";
 import { ProgressView } from "./components/ProgressView";
 import { GalleryView } from "./components/GalleryView";
@@ -17,16 +18,6 @@ function App() {
   });
   const [faceGroups, setFaceGroups] = useState<FaceGroup[]>([]);
   const [error, setError] = useState<string | null>(null);
-
-  useEffect(() => {
-    const unlisten = listen<ScanProgress>("scan-progress", (event) => {
-      setProgress(event.payload);
-    });
-
-    return () => {
-      unlisten.then((fn) => fn());
-    };
-  }, []);
 
   const handleFolderSelected = useCallback(async (folderPath: string) => {
     setView("progress");
@@ -47,6 +38,33 @@ function App() {
       setView("dropzone");
     }
   }, []);
+
+  useEffect(() => {
+    const unlisten = listen<ScanProgress>("scan-progress", (event) => {
+      setProgress(event.payload);
+    });
+
+    return () => {
+      unlisten.then((fn) => fn());
+    };
+  }, []);
+
+  // Listen for Tauri native file drop events (provides real file system paths)
+  useEffect(() => {
+    const webview = getCurrentWebviewWindow();
+    const unlisten = webview.onDragDropEvent((event) => {
+      if (event.payload.type === "drop" && view === "dropzone") {
+        const paths = event.payload.paths;
+        if (paths && paths.length > 0) {
+          handleFolderSelected(paths[0]);
+        }
+      }
+    });
+
+    return () => {
+      unlisten.then((fn) => fn());
+    };
+  }, [view, handleFolderSelected]);
 
   const handleReset = useCallback(() => {
     setView("dropzone");

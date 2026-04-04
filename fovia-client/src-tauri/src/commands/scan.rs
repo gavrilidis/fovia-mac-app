@@ -2,6 +2,7 @@ use std::path::PathBuf;
 
 use base64::{engine::general_purpose::STANDARD as BASE64, Engine};
 use serde::{Deserialize, Serialize};
+use sysinfo::Disks;
 use tauri::{AppHandle, Emitter};
 
 use crate::services::{api_client::ApiClient, extractor, scanner};
@@ -37,6 +38,34 @@ pub struct ScanResult {
     pub total_faces: usize,
 }
 
+#[derive(Debug, Serialize, Deserialize, Clone)]
+pub struct VolumeInfo {
+    pub name: String,
+    pub mount_point: String,
+    pub total_bytes: u64,
+    pub available_bytes: u64,
+    pub is_removable: bool,
+}
+
+#[tauri::command]
+pub fn list_volumes() -> Vec<VolumeInfo> {
+    let disks = Disks::new_with_refreshed_list();
+    disks
+        .iter()
+        .map(|disk| {
+            let name = disk.name().to_string_lossy().to_string();
+            let mount = disk.mount_point().to_string_lossy().to_string();
+            VolumeInfo {
+                name: if name.is_empty() { mount.clone() } else { name },
+                mount_point: mount,
+                total_bytes: disk.total_space(),
+                available_bytes: disk.available_space(),
+                is_removable: disk.is_removable(),
+            }
+        })
+        .collect()
+}
+
 #[tauri::command]
 pub async fn scan_folder(app: AppHandle, folder_path: String) -> Result<ScanResult, String> {
     let root = PathBuf::from(&folder_path);
@@ -44,11 +73,11 @@ pub async fn scan_folder(app: AppHandle, folder_path: String) -> Result<ScanResu
         return Err(format!("Invalid folder: {folder_path}"));
     }
 
-    let raw_files = scanner::find_raw_files(&root);
+    let raw_files = scanner::find_image_files(&root);
     let total_files = raw_files.len();
 
     if total_files == 0 {
-        return Err("No RAW files found in the selected folder.".to_string());
+        return Err("No image files found in the selected folder.".to_string());
     }
 
     let api = ApiClient::new(API_BASE_URL);
@@ -66,7 +95,7 @@ pub async fn scan_folder(app: AppHandle, folder_path: String) -> Result<ScanResu
                 .to_string_lossy()
                 .to_string();
 
-            match extractor::extract_jpeg_preview(path) {
+            match extractor::extract_image_bytes(path) {
                 Ok(jpeg_data) => {
                     batch_paths.push(path.to_string_lossy().to_string());
                     batch.push((filename, jpeg_data));

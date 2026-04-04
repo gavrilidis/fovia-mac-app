@@ -1112,8 +1112,10 @@ dependencies = [
  "reqwest 0.12.28",
  "serde",
  "serde_json",
+ "sysinfo",
  "tauri",
  "tauri-build",
+ "tauri-plugin-dialog",
  "tauri-plugin-fs",
  "tauri-plugin-log",
  "tauri-plugin-shell",
@@ -2424,6 +2426,15 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "72ef4a56884ca558e5ddb05a1d1e7e1bfd9a68d9ed024c21704cc98872dae1bb"
 
 [[package]]
+name = "ntapi"
+version = "0.4.3"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "c3b335231dfd352ffb0f8017f3b6027a4917f7df785ea2143d8af2adc66980ae"
+dependencies = [
+ "winapi",
+]
+
+[[package]]
 name = "num-bigint-dig"
 version = "0.8.6"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -2578,6 +2589,16 @@ dependencies = [
  "block2",
  "libc",
  "objc2",
+ "objc2-core-foundation",
+]
+
+[[package]]
+name = "objc2-io-kit"
+version = "0.3.2"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "33fafba39597d6dc1fb709123dfa8289d39406734be322956a69f0931c73bb15"
+dependencies = [
+ "libc",
  "objc2-core-foundation",
 ]
 
@@ -3447,6 +3468,30 @@ dependencies = [
  "wasm-bindgen-futures",
  "wasm-streams",
  "web-sys",
+]
+
+[[package]]
+name = "rfd"
+version = "0.16.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "a15ad77d9e70a92437d8f74c35d99b4e4691128df018833e99f90bcd36152672"
+dependencies = [
+ "block2",
+ "dispatch2",
+ "glib-sys",
+ "gobject-sys",
+ "gtk-sys",
+ "js-sys",
+ "log",
+ "objc2",
+ "objc2-app-kit",
+ "objc2-core-foundation",
+ "objc2-foundation",
+ "raw-window-handle",
+ "wasm-bindgen",
+ "wasm-bindgen-futures",
+ "web-sys",
+ "windows-sys 0.60.2",
 ]
 
 [[package]]
@@ -4459,6 +4504,20 @@ dependencies = [
 ]
 
 [[package]]
+name = "sysinfo"
+version = "0.35.2"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "3c3ffa3e4ff2b324a57f7aeb3c349656c7b127c3c189520251a648102a92496e"
+dependencies = [
+ "libc",
+ "memchr",
+ "ntapi",
+ "objc2-core-foundation",
+ "objc2-io-kit",
+ "windows",
+]
+
+[[package]]
 name = "system-configuration"
 version = "0.7.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -4682,6 +4741,24 @@ dependencies = [
  "tauri-utils",
  "toml 0.9.12+spec-1.1.0",
  "walkdir",
+]
+
+[[package]]
+name = "tauri-plugin-dialog"
+version = "2.7.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "a1fa4150c95ae391946cc8b8f905ab14797427caba3a8a2f79628e956da91809"
+dependencies = [
+ "log",
+ "raw-window-handle",
+ "rfd",
+ "serde",
+ "serde_json",
+ "tauri",
+ "tauri-plugin",
+ "tauri-plugin-fs",
+ "thiserror 2.0.18",
+ "url",
 ]
 
 [[package]]

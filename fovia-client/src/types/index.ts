@@ -36,4 +36,12 @@ export interface FaceGroup {
   members: FaceEntry[];
 }
 
+export interface VolumeInfo {
+  name: string;
+  mount_point: string;
+  total_bytes: number;
+  available_bytes: number;
+  is_removable: boolean;
+}
+
 export type AppView = "dropzone" | "progress" | "gallery";
