@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import logging
 
-from fastapi import APIRouter, HTTPException, UploadFile, status
+from fastapi import APIRouter, HTTPException, Query, UploadFile, status
 
 from app.core.config import settings
 from app.models.schemas import BatchResponse, BoundingBox, FaceResult
@@ -14,7 +14,10 @@ router = APIRouter(prefix=settings.api_v1_prefix, tags=["faces"])
 
 
 @router.post("/extract-faces", response_model=BatchResponse)
-async def extract_faces(files: list[UploadFile]) -> BatchResponse:
+async def extract_faces(
+    files: list[UploadFile],
+    threshold: float = Query(default=settings.face_detection_threshold, ge=0.0, le=1.0),
+) -> BatchResponse:
     if len(files) > settings.max_batch_size:
         raise HTTPException(
             status_code=status.HTTP_413_REQUEST_ENTITY_TOO_LARGE,
@@ -38,7 +41,7 @@ async def extract_faces(files: list[UploadFile]) -> BatchResponse:
             len(image_bytes),
             file.content_type,
         )
-        detected = face_service.detect_faces(image_bytes)
+        detected = face_service.detect_faces(image_bytes, threshold=threshold)
         logger.info(
             "  -> %d face(s) detected in %s",
             len(detected),

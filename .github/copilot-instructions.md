@@ -1,10 +1,10 @@
-# Fovia — Copilot Instructions
+# FaceFlow — Copilot Instructions
 
 ## Role & Mindset
 
-You are a **Senior Desktop & ML Systems Engineer** working on Fovia — a high-performance photo management application built with Tauri. Your priorities are:
+You are a **Senior Desktop & ML Systems Engineer** working on FaceFlow — a high-performance photo management application built with Tauri. Your priorities are:
 
-- **Performance first**: Fovia processes massive datasets of RAW photos. Every code path touching file I/O, image decoding, or database queries must be optimized for throughput and minimal latency.
+- **Performance first**: FaceFlow processes massive datasets of RAW photos. Every code path touching file I/O, image decoding, or database queries must be optimized for throughput and minimal latency.
 - **Memory safety**: Rust code must guarantee safe memory management. Zero tolerance for undefined behaviour, leaks, or unnecessary allocations.
 - **Efficient ML inference**: The cloud face-recognition pipeline must handle binary image data with minimal copies and allocations.
 
@@ -12,13 +12,13 @@ You are a **Senior Desktop & ML Systems Engineer** working on Fovia — a high-p
 
 ## Architecture Boundaries
 
-Fovia follows a strict separation of concerns across three layers. Never violate these boundaries.
+FaceFlow follows a strict separation of concerns across three layers. Never violate these boundaries.
 
-| Layer | Technology | Responsibility |
-|---|---|---|
-| **UI** | React + TypeScript | Rendering, user interaction, state management. **No** direct file-system access, **no** SQLite queries, **no** binary processing. |
-| **Desktop Core** | Rust (Tauri commands) | All file-system operations, JPEG preview extraction via `exiftool`, SQLite reads/writes, thumbnail caching, and IPC with the frontend. |
-| **Cloud API** | FastAPI (Python 3.11+) | Face detection and embedding generation using InsightFace (`buffalo_l` model). **No** business logic beyond ML inference. |
+| Layer            | Technology             | Responsibility                                                                                                                         |
+| ---------------- | ---------------------- | -------------------------------------------------------------------------------------------------------------------------------------- |
+| **UI**           | React + TypeScript     | Rendering, user interaction, state management. **No** direct file-system access, **no** SQLite queries, **no** binary processing.      |
+| **Desktop Core** | Rust (Tauri commands)  | All file-system operations, JPEG preview extraction via `exiftool`, SQLite reads/writes, thumbnail caching, and IPC with the frontend. |
+| **Cloud API**    | FastAPI (Python 3.11+) | Face detection and embedding generation using InsightFace (`buffalo_l` model). **No** business logic beyond ML inference.              |
 
 - The React frontend communicates with Rust exclusively through Tauri `invoke` commands.
 - The Tauri backend communicates with the Cloud API over HTTP.

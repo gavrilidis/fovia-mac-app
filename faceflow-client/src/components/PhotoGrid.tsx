@@ -1,0 +1,257 @@
+import React, { useCallback, useEffect, useRef, useState } from "react";
+import { invoke } from "@tauri-apps/api/core";
+import type { FaceEntry, PhotoMeta } from "../types";
+import { COLOR_LABEL_MAP } from "../types";
+import { PhotoViewer } from "./PhotoViewer";
+import { StarRating } from "./StarRating";
+
+interface PhotoGridProps {
+  photos: FaceEntry[];
+  personLabel: string;
+  selectedIds: Set<string>;
+  onToggleSelect: (faceId: string) => void;
+  hideBbox?: boolean;
+  metaMap: Map<string, PhotoMeta>;
+}
+
+/* ------------------------------------------------------------------ */
+/* Per-photo card — loads full image lazily, face crop as placeholder  */
+/* ------------------------------------------------------------------ */
+const PhotoCard: React.FC<{
+  photo: FaceEntry;
+  isSelected: boolean;
+  onToggleSelect: () => void;
+  onOpen: () => void;
+  hideBbox?: boolean;
+  meta?: PhotoMeta;
+}> = ({ photo, isSelected, onToggleSelect, onOpen, hideBbox, meta }) => {
+  const imgRef = useRef<HTMLImageElement>(null);
+  const containerRef = useRef<HTMLDivElement>(null);
+  const [fullImage, setFullImage] = useState<string | null>(null);
+  const [bboxStyle, setBboxStyle] = useState<React.CSSProperties | null>(null);
+
+  // Load full image from disk lazily
+  useEffect(() => {
+    let cancelled = false;
+    invoke<string>("read_photo_base64", { filePath: photo.file_path })
+      .then((data) => {
+        if (!cancelled) setFullImage(data);
+      })
+      .catch(() => {});
+    return () => { cancelled = true; };
+  }, [photo.file_path]);
+
+  const computeBbox = useCallback(() => {
+    const img = imgRef.current;
+    const container = containerRef.current;
+    if (!img || !container || !fullImage) return;
+
+    const nw = img.naturalWidth;
+    const nh = img.naturalHeight;
+    const cw = container.clientWidth;
+    const ch = container.clientHeight;
+    if (nw === 0 || nh === 0) return;
+
+    const scale = Math.max(cw / nw, ch / nh);
+    const offsetX = (nw * scale - cw) / 2;
+    const offsetY = (nh * scale - ch) / 2;
+
+    setBboxStyle({
+      left: `${photo.bbox_x1 * scale - offsetX}px`,
+      top: `${photo.bbox_y1 * scale - offsetY}px`,
+      width: `${(photo.bbox_x2 - photo.bbox_x1) * scale}px`,
+      height: `${(photo.bbox_y2 - photo.bbox_y1) * scale}px`,
+    });
+  }, [photo, fullImage]);
+
+  const imageSrc = fullImage
+    ? `data:image/jpeg;base64,${fullImage}`
+    : photo.preview_base64
+      ? `data:image/jpeg;base64,${photo.preview_base64}`
+      : null;
+
+  return (
+    <div
+      ref={containerRef}
+      className={`group relative aspect-square cursor-pointer overflow-hidden rounded-xl bg-surface-elevated shadow-sm shadow-black/30 ring-1 transition-all duration-200 ${
+        isSelected
+          ? "ring-2 ring-accent ring-offset-2 ring-offset-surface"
+          : "ring-white/[0.06] hover:ring-white/[0.12] hover:shadow-md hover:shadow-black/25"
+      }`}
+      onClick={() => onToggleSelect()}
+      onDoubleClick={() => onOpen()}
+    >
+      {imageSrc ? (
+        <img
+          ref={imgRef}
+          src={imageSrc}
+          alt={photo.file_path.split("/").pop() || "Photo"}
+          className="h-full w-full object-cover transition-transform duration-300 ease-out group-hover:scale-[1.03]"
+          onLoad={computeBbox}
+        />
+      ) : (
+        <div className="flex h-full w-full items-center justify-center">
+          <svg
+            className="h-8 w-8 text-fg-muted"
+            fill="none"
+            viewBox="0 0 24 24"
+            stroke="currentColor"
+            strokeWidth={1.5}
+          >
+            <path
+              strokeLinecap="round"
+              strokeLinejoin="round"
+              d="M2.25 15.75l5.159-5.159a2.25 2.25 0 013.182 0l5.159 5.159m-1.5-1.5l1.409-1.409a2.25 2.25 0 013.182 0l2.909 2.909M3.75 21h16.5a2.25 2.25 0 002.25-2.25V5.25a2.25 2.25 0 00-2.25-2.25H3.75A2.25 2.25 0 001.5 5.25v13.5A2.25 2.25 0 003.75 21z"
+            />
+          </svg>
+        </div>
+      )}
+
+      {/* Face bounding box overlay — only on full images */}
+      {bboxStyle && fullImage && !hideBbox && (
+        <div
+          className="pointer-events-none absolute rounded-sm border-2 border-accent shadow-[0_0_6px_rgba(99,102,241,0.5)]"
+          style={bboxStyle}
+        />
+      )}
+
+      {/* Selection checkbox */}
+      <button
+        title={isSelected ? "Deselect photo" : "Select photo"}
+        onClick={(e) => {
+          e.stopPropagation();
+          onToggleSelect();
+        }}
+        className={`absolute left-3 top-3 flex h-6 w-6 items-center justify-center rounded-lg border-[1.5px] transition-all duration-200 ${
+          isSelected
+            ? "border-accent bg-accent text-white shadow-md shadow-accent/30"
+            : "border-white/40 bg-black/40 text-transparent opacity-0 backdrop-blur-sm group-hover:opacity-100"
+        }`}
+      >
+        <svg className="h-3.5 w-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={3}>
+          <path strokeLinecap="round" strokeLinejoin="round" d="M4.5 12.75l6 6 9-13.5" />
+        </svg>
+      </button>
+
+      {/* Pick/Reject badge */}
+      {meta && meta.pick_status === "pick" && (
+        <div className="absolute right-3 top-3 flex h-5 w-5 items-center justify-center rounded-full bg-positive/90 text-white shadow-sm">
+          <svg className="h-3 w-3" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={3}>
+            <path strokeLinecap="round" strokeLinejoin="round" d="M4.5 12.75l6 6 9-13.5" />
+          </svg>
+        </div>
+      )}
+      {meta && meta.pick_status === "reject" && (
+        <div className="absolute right-3 top-3 flex h-5 w-5 items-center justify-center rounded-full bg-negative/90 text-white shadow-sm">
+          <svg className="h-3 w-3" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={3}>
+            <path strokeLinecap="round" strokeLinejoin="round" d="M6 18L18 6M6 6l12 12" />
+          </svg>
+        </div>
+      )}
+
+      {/* Color label dot */}
+      {meta && meta.color_label !== "none" && (
+        <div
+          className="absolute left-3 bottom-3 h-2.5 w-2.5 rounded-full shadow-sm ring-1 ring-black/30"
+          style={{ backgroundColor: COLOR_LABEL_MAP[meta.color_label] }}
+        />
+      )}
+
+      {/* Hover overlay */}
+      <div className="absolute inset-x-0 bottom-0 bg-gradient-to-t from-black/80 via-black/40 to-transparent px-4 pb-3.5 pt-10 opacity-0 transition-opacity duration-250 group-hover:opacity-100">
+        {/* Star rating (inline in overlay) */}
+        {meta && meta.rating > 0 && (
+          <div className="mb-1">
+            <StarRating rating={meta.rating} size="sm" readonly />
+          </div>
+        )}
+        <p className="truncate text-[12px] font-medium text-white">
+          {photo.file_path.split("/").pop()}
+        </p>
+        <p className="mt-0.5 text-[11px] text-white/60">
+          {photo.detection_score > 0 ? `Score: ${(photo.detection_score * 100).toFixed(0)}%` : photo.file_path.split("/").pop()}
+        </p>
+      </div>
+    </div>
+  );
+};
+
+/* ------------------------------------------------------------------ */
+/* Main grid                                                           */
+/* ------------------------------------------------------------------ */
+export const PhotoGrid: React.FC<PhotoGridProps> = ({
+  photos,
+  personLabel,
+  selectedIds,
+  onToggleSelect,
+  hideBbox,
+  metaMap,
+}) => {
+  const [viewerIndex, setViewerIndex] = useState<number | null>(null);
+
+  if (photos.length === 0) {
+    return (
+      <div className="flex h-full flex-1 flex-col items-center justify-center gap-4 p-8">
+        <svg
+          className="h-14 w-14 text-fg-muted/30"
+          fill="none"
+          viewBox="0 0 24 24"
+          stroke="currentColor"
+          strokeWidth={0.8}
+        >
+          <path
+            strokeLinecap="round"
+            strokeLinejoin="round"
+            d="M15.75 6a3.75 3.75 0 11-7.5 0 3.75 3.75 0 017.5 0zM4.501 20.118a7.5 7.5 0 0114.998 0A17.933 17.933 0 0112 21.75c-2.676 0-5.216-.584-7.499-1.632z"
+          />
+        </svg>
+        <p className="text-[13px] text-fg-muted">
+          Select a person to view their photos
+        </p>
+      </div>
+    );
+  }
+
+  return (
+    <div className="flex flex-1 flex-col overflow-hidden">
+      {/* Person header */}
+      <div className="flex items-center justify-between px-6 py-5">
+        <div className="flex items-center gap-2.5">
+          <h2 className="text-[15px] font-semibold text-fg">
+            {personLabel}
+          </h2>
+          <span className="rounded-md bg-surface-elevated px-2 py-0.5 text-[11px] tabular-nums text-fg-muted">
+            {photos.length}
+          </span>
+        </div>
+      </div>
+
+      {/* Grid */}
+      <div className="flex-1 overflow-y-auto px-6 pb-6">
+        <div className="grid grid-cols-2 gap-4 sm:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5">
+          {photos.map((photo, idx) => (
+            <PhotoCard
+              key={photo.face_id}
+              photo={photo}
+              isSelected={selectedIds.has(photo.face_id)}
+              onToggleSelect={() => onToggleSelect(photo.face_id)}
+              onOpen={() => setViewerIndex(idx)}
+              hideBbox={hideBbox}
+              meta={metaMap.get(photo.file_path)}
+            />
+          ))}
+        </div>
+      </div>
+
+      {/* Full-screen photo viewer */}
+      {viewerIndex !== null && (
+        <PhotoViewer
+          photos={photos}
+          currentIndex={viewerIndex}
+          onClose={() => setViewerIndex(null)}
+          onNavigate={setViewerIndex}
+        />
+      )}
+    </div>
+  );
+};

@@ -1,0 +1,80 @@
+@import "tailwindcss";
+
+@theme {
+  /* Surface hierarchy */
+  --color-surface: #1c1c1e;
+  --color-surface-alt: #2c2c2e;
+  --color-surface-elevated: #3a3a3c;
+  --color-surface-hover: #48484a;
+
+  /* Text */
+  --color-fg: #f5f5f7;
+  --color-fg-muted: #98989d;
+
+  /* Accent */
+  --color-accent: #0a84ff;
+  --color-accent-hover: #409cff;
+
+  /* Borders */
+  --color-edge: #38383a;
+  --color-edge-light: #48484a;
+
+  /* Semantic */
+  --color-positive: #30d158;
+  --color-negative: #ff453a;
+  --color-warning: #ffd60a;
+}
+
+@layer base {
+  html,
+  body,
+  #root {
+    height: 100%;
+    width: 100%;
+    overflow: hidden;
+  }
+
+  body {
+    font-family:
+      -apple-system, BlinkMacSystemFont, "SF Pro Display", "SF Pro Text",
+      "Helvetica Neue", sans-serif;
+    background-color: var(--color-surface);
+    color: var(--color-fg);
+    -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
+  }
+
+  /* macOS-style thin scrollbars */
+  ::-webkit-scrollbar {
+    width: 6px;
+    height: 6px;
+  }
+
+  ::-webkit-scrollbar-track {
+    background: transparent;
+  }
+
+  ::-webkit-scrollbar-thumb {
+    background: rgba(255, 255, 255, 0.1);
+    border-radius: 3px;
+  }
+
+  ::-webkit-scrollbar-thumb:hover {
+    background: rgba(255, 255, 255, 0.18);
+  }
+
+  /* Custom select styling */
+  select {
+    -webkit-appearance: none;
+    appearance: none;
+    background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='10' height='6' fill='none'%3E%3Cpath d='M1 1l4 4 4-4' stroke='%2398989d' stroke-width='1.5' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E");
+    background-repeat: no-repeat;
+    background-position: right 6px center;
+    padding-right: 20px !important;
+  }
+
+  select option {
+    background-color: #2c2c2e;
+    color: #f5f5f7;
+  }
+}
