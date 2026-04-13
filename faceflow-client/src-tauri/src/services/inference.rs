@@ -105,40 +105,74 @@ impl FaceModels {
             raw_faces.len()
         );
 
-        // --- Recognition for each face ---
+        // --- Recognition in batches ---
+        const REC_BATCH_SIZE: usize = 8;
         let mut results = Vec::with_capacity(raw_faces.len());
-        for face in &raw_faces {
-            let aligned = align_face(&img, &face.landmarks);
-            let rec_input = preprocess_recognition(&aligned);
-            let rec_value = Value::from_array(rec_input)
-                .map_err(|e| format!("Failed to create recognition input: {e}"))?;
+
+        // Pre-align all faces
+        let aligned_faces: Vec<image::RgbImage> = raw_faces
+            .iter()
+            .map(|face| align_face(&img, &face.landmarks))
+            .collect();
+
+        for chunk_start in (0..raw_faces.len()).step_by(REC_BATCH_SIZE) {
+            let chunk_end = (chunk_start + REC_BATCH_SIZE).min(raw_faces.len());
+            let batch_size = chunk_end - chunk_start;
+
+            // Build batched tensor [N, 3, 112, 112]
+            let mut batch_tensor =
+                Array4::<f32>::zeros((batch_size, 3, REC_INPUT_SIZE, REC_INPUT_SIZE));
+            for (bi, face_idx) in (chunk_start..chunk_end).enumerate() {
+                let aligned = &aligned_faces[face_idx];
+                for y in 0..REC_INPUT_SIZE {
+                    for x in 0..REC_INPUT_SIZE {
+                        let pixel = aligned.get_pixel(x as u32, y as u32);
+                        batch_tensor[[bi, 0, y, x]] = (pixel[0] as f32 - 127.5) / 127.5;
+                        batch_tensor[[bi, 1, y, x]] = (pixel[1] as f32 - 127.5) / 127.5;
+                        batch_tensor[[bi, 2, y, x]] = (pixel[2] as f32 - 127.5) / 127.5;
+                    }
+                }
+            }
+
+            let rec_value = Value::from_array(batch_tensor)
+                .map_err(|e| format!("Failed to create batched recognition input: {e}"))?;
 
             let rec_outputs = self
                 .rec_session
                 .run(ort::inputs!["input.1" => rec_value])
-                .map_err(|e| format!("Recognition inference failed: {e}"))?;
+                .map_err(|e| format!("Batched recognition inference failed: {e}"))?;
 
             let emb_view = rec_outputs[0]
                 .try_extract_tensor::<f32>()
-                .map_err(|e| format!("Failed to extract embedding: {e}"))?;
+                .map_err(|e| format!("Failed to extract batch embeddings: {e}"))?;
 
-            let raw_emb: Vec<f32> = emb_view.1.iter().copied().collect();
-            let embedding = l2_normalize(&raw_emb);
+            let emb_data = emb_view.1;
+            let emb_dim = if batch_size > 0 {
+                emb_data.len() / batch_size
+            } else {
+                512
+            };
 
-            // Clamp bbox to image bounds
-            let bbox = [
-                face.bbox[0].max(0.0).min(orig_w as f32),
-                face.bbox[1].max(0.0).min(orig_h as f32),
-                face.bbox[2].max(0.0).min(orig_w as f32),
-                face.bbox[3].max(0.0).min(orig_h as f32),
-            ];
+            for bi in 0..batch_size {
+                let face_idx = chunk_start + bi;
+                let face = &raw_faces[face_idx];
+                let raw_emb: Vec<f32> = emb_data[bi * emb_dim..(bi + 1) * emb_dim].to_vec();
+                let embedding = l2_normalize(&raw_emb);
 
-            results.push(DetectedFace {
-                bbox,
-                landmarks: face.landmarks,
-                score: face.score,
-                embedding,
-            });
+                let bbox = [
+                    face.bbox[0].max(0.0).min(orig_w as f32),
+                    face.bbox[1].max(0.0).min(orig_h as f32),
+                    face.bbox[2].max(0.0).min(orig_w as f32),
+                    face.bbox[3].max(0.0).min(orig_h as f32),
+                ];
+
+                results.push(DetectedFace {
+                    bbox,
+                    landmarks: face.landmarks,
+                    score: face.score,
+                    embedding,
+                });
+            }
         }
 
         Ok(results)
@@ -432,6 +466,7 @@ fn estimate_similarity_transform(src: &[[f32; 2]; 5], dst: &[[f32; 2]; 5]) -> (f
 // ---- Recognition preprocessing ----
 
 /// Create NCHW RGB tensor from aligned 112x112 face image.
+#[allow(dead_code)]
 fn preprocess_recognition(img: &image::RgbImage) -> Array4<f32> {
     let mut tensor = Array4::<f32>::zeros((1, 3, REC_INPUT_SIZE, REC_INPUT_SIZE));
     for y in 0..REC_INPUT_SIZE {

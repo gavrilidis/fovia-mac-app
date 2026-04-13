@@ -1,18 +1,21 @@
 import React, { useState, useCallback } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import { open } from "@tauri-apps/plugin-dialog";
-import type { ExportConfig } from "../types";
+import type { ExportConfig, FaceGroup, FaceGroupExport } from "../types";
 
 interface ExportDialogProps {
   filePaths: string[];
+  groups: FaceGroup[];
   onClose: () => void;
 }
 
-export const ExportDialog: React.FC<ExportDialogProps> = ({ filePaths, onClose }) => {
+export const ExportDialog: React.FC<ExportDialogProps> = ({ filePaths, groups, onClose }) => {
   const [destination, setDestination] = useState("");
   const [renameTemplate, setRenameTemplate] = useState("");
   const [maxDimension, setMaxDimension] = useState<string>("");
   const [jpegQuality, setJpegQuality] = useState("90");
+  const [watermarkText, setWatermarkText] = useState("");
+  const [exportByFaces, setExportByFaces] = useState(false);
   const [exporting, setExporting] = useState(false);
   const [result, setResult] = useState<string | null>(null);
 
@@ -28,12 +31,26 @@ export const ExportDialog: React.FC<ExportDialogProps> = ({ filePaths, onClose }
     setExporting(true);
     setResult(null);
     try {
+      // Build face group mapping for by-face export
+      let faceGroups: FaceGroupExport[] | null = null;
+      if (exportByFaces && groups.length > 0) {
+        const selectedSet = new Set(filePaths);
+        faceGroups = groups.map((g, i) => ({
+          label: `Person ${i + 1}`,
+          file_paths: g.members
+            .map((m) => m.file_path)
+            .filter((fp) => selectedSet.has(fp)),
+        })).filter((g) => g.file_paths.length > 0);
+      }
+
       const config: ExportConfig = {
         destination,
         rename_template: renameTemplate,
         max_dimension: maxDimension ? parseInt(maxDimension) : null,
         jpeg_quality: jpegQuality ? parseInt(jpegQuality) : null,
-        watermark_text: "",
+        watermark_text: watermarkText,
+        export_by_faces: exportByFaces,
+        face_groups: faceGroups,
       };
       const count = await invoke<number>("export_photos", { filePaths, config });
       setResult(`Exported ${count} photo${count !== 1 ? "s" : ""} successfully`);
@@ -42,11 +59,11 @@ export const ExportDialog: React.FC<ExportDialogProps> = ({ filePaths, onClose }
     } finally {
       setExporting(false);
     }
-  }, [destination, renameTemplate, maxDimension, jpegQuality, filePaths]);
+  }, [destination, renameTemplate, maxDimension, jpegQuality, watermarkText, exportByFaces, filePaths, groups]);
 
   return (
     <div className="fixed inset-0 z-[90] flex items-center justify-center bg-black/60 backdrop-blur-sm">
-      <div className="w-[460px] rounded-xl border border-edge bg-surface-alt p-5 shadow-2xl shadow-black/50">
+      <div className="w-[460px] max-h-[85vh] overflow-y-auto rounded-xl border border-edge bg-surface-alt p-5 shadow-2xl shadow-black/50">
         {/* Header */}
         <div className="mb-5 flex items-center justify-between">
           <h2 className="text-[15px] font-semibold text-fg">
@@ -98,7 +115,7 @@ export const ExportDialog: React.FC<ExportDialogProps> = ({ filePaths, onClose }
           </p>
         </div>
 
-        {/* Resize */}
+        {/* Resize + Quality */}
         <div className="mb-4 flex gap-4">
           <div className="flex-1">
             <label className="mb-1.5 block text-[11px] font-medium text-fg-muted">Max Dimension (px)</label>
@@ -121,6 +138,38 @@ export const ExportDialog: React.FC<ExportDialogProps> = ({ filePaths, onClose }
               className="w-full rounded-lg border border-edge bg-surface px-3 py-1.5 text-[12px] text-fg placeholder:text-fg-muted/40 focus:border-accent focus:outline-none"
             />
           </div>
+        </div>
+
+        {/* Watermark */}
+        <div className="mb-4">
+          <label className="mb-1.5 block text-[11px] font-medium text-fg-muted">Watermark Text</label>
+          <input
+            type="text"
+            value={watermarkText}
+            onChange={(e) => setWatermarkText(e.target.value)}
+            placeholder="e.g., © Your Name"
+            className="w-full rounded-lg border border-edge bg-surface px-3 py-1.5 text-[12px] text-fg placeholder:text-fg-muted/40 focus:border-accent focus:outline-none"
+          />
+          <p className="mt-1 text-[11px] text-fg-muted/50">
+            Leave empty for no watermark. Text is placed in the bottom-right corner.
+          </p>
+        </div>
+
+        {/* Export by faces */}
+        <div className="mb-4">
+          <label className="flex items-center gap-2 cursor-pointer">
+            <input
+              type="checkbox"
+              checked={exportByFaces}
+              onChange={(e) => setExportByFaces(e.target.checked)}
+              aria-label="Export by faces"
+              className="h-3.5 w-3.5 rounded border-edge accent-accent"
+            />
+            <span className="text-[12px] text-fg">Export by faces</span>
+          </label>
+          <p className="mt-1 ml-5.5 text-[11px] text-fg-muted/50">
+            Creates subfolders for each detected person (Person 1, Person 2, ...).
+          </p>
         </div>
 
         {/* Result message */}

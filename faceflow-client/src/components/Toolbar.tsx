@@ -25,6 +25,13 @@ interface ToolbarProps {
   onFilterPickChange: (status: PickStatus | "all") => void;
   filterLabel: ColorLabel | "all";
   onFilterLabelChange: (label: ColorLabel | "all") => void;
+  filterQuality: string;
+  onFilterQualityChange: (quality: string) => void;
+  eventView: boolean;
+  onToggleEventView: () => void;
+  eventGap: number;
+  onEventGapChange: (gap: number) => void;
+  eventCount: number;
 }
 
 /* Small icon button */
@@ -67,6 +74,13 @@ export const Toolbar: React.FC<ToolbarProps> = ({
   onFilterPickChange,
   filterLabel,
   onFilterLabelChange,
+  filterQuality,
+  onFilterQualityChange,
+  eventView,
+  onToggleEventView,
+  eventGap,
+  onEventGapChange,
+  eventCount,
 }) => {
   const handleWindowDrag = useCallback((e: React.MouseEvent) => {
     if ((e.target as HTMLElement).closest("button, input, a, select, textarea")) return;
@@ -88,7 +102,7 @@ export const Toolbar: React.FC<ToolbarProps> = ({
       : ("none" as PickStatus);
 
   const hasSelection = selectedPhotoCount > 0;
-  const hasActiveFilters = filterRating > 0 || filterPick !== "all" || filterLabel !== "all";
+  const hasActiveFilters = filterRating > 0 || filterPick !== "all" || filterLabel !== "all" || filterQuality !== "all";
 
   return (
     <div
@@ -164,12 +178,29 @@ export const Toolbar: React.FC<ToolbarProps> = ({
             <option value="purple">Purple</option>
           </select>
 
+          <select
+            value={filterQuality}
+            onChange={(e) => onFilterQualityChange(e.target.value)}
+            className={`h-7 cursor-pointer rounded-md border bg-surface px-2 text-[11px] outline-none transition-colors duration-150 ${
+              filterQuality !== "all"
+                ? "border-accent/40 text-accent"
+                : "border-transparent text-fg-muted hover:border-edge hover:text-fg"
+            }`}
+            title="Filter by quality"
+          >
+            <option value="all">Quality</option>
+            <option value="sharp">Sharp only</option>
+            <option value="eyes_open">Eyes open</option>
+            <option value="no_defects">No defects</option>
+          </select>
+
           {hasActiveFilters && (
             <button
               onClick={() => {
                 onFilterRatingChange(0);
                 onFilterPickChange("all");
                 onFilterLabelChange("all");
+                onFilterQualityChange("all");
               }}
               title="Clear all filters"
               className="ml-0.5 flex h-5 w-5 items-center justify-center rounded text-fg-muted/60 transition-colors hover:text-fg"
@@ -185,6 +216,31 @@ export const Toolbar: React.FC<ToolbarProps> = ({
 
         {/* Global actions */}
         <div className="flex items-center gap-0.5">
+          <IconBtn onClick={onToggleEventView} title="Timeline events" active={eventView}>
+            <svg className="h-[15px] w-[15px]" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.5}>
+              <path strokeLinecap="round" strokeLinejoin="round" d="M6.75 3v2.25M17.25 3v2.25M3 18.75V7.5a2.25 2.25 0 012.25-2.25h13.5A2.25 2.25 0 0121 7.5v11.25m-18 0A2.25 2.25 0 005.25 21h13.5A2.25 2.25 0 0021 18.75m-18 0v-7.5A2.25 2.25 0 015.25 9h13.5A2.25 2.25 0 0121 11.25v7.5" />
+            </svg>
+          </IconBtn>
+
+          {eventView && (
+            <div className="flex items-center gap-1.5 ml-1">
+              <span className="text-[10px] text-fg-muted whitespace-nowrap">{eventGap}min gap</span>
+              <input
+                type="range"
+                min="5"
+                max="240"
+                step="5"
+                value={eventGap}
+                onChange={(e) => onEventGapChange(parseInt(e.target.value))}
+                className="h-1 w-16 cursor-pointer accent-accent"
+                title={`Time gap: ${eventGap} minutes`}
+              />
+              <span className="text-[10px] tabular-nums text-fg-muted whitespace-nowrap">
+                {eventCount} event{eventCount !== 1 ? "s" : ""}
+              </span>
+            </div>
+          )}
+
           <IconBtn onClick={onToggleExif} title="Photo info (I)" active={showExif}>
             <svg className="h-[15px] w-[15px]" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.5}>
               <path strokeLinecap="round" strokeLinejoin="round" d="M11.25 11.25l.041-.02a.75.75 0 011.063.852l-.708 2.836a.75.75 0 001.063.853l.041-.021M21 12a9 9 0 11-18 0 9 9 0 0118 0zm-9-3.75h.008v.008H12V8.25z" />

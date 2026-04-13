@@ -58,11 +58,9 @@ pub fn is_activated(app_data: &Path) -> bool {
 
 /// Save a validated key to disk.
 pub fn save_license(app_data: &Path, key: &str) -> Result<(), String> {
-    std::fs::create_dir_all(app_data)
-        .map_err(|e| format!("Failed to create app data dir: {e}"))?;
+    std::fs::create_dir_all(app_data).map_err(|e| format!("Failed to create app data dir: {e}"))?;
     let license_path = app_data.join("license.key");
-    std::fs::write(&license_path, key.trim())
-        .map_err(|e| format!("Failed to save license: {e}"))
+    std::fs::write(&license_path, key.trim()).map_err(|e| format!("Failed to save license: {e}"))
 }
 
 /// Remove the stored license (deactivate).

@@ -9,6 +9,8 @@ interface PhotoViewerProps {
   onNavigate: (index: number) => void;
 }
 
+const PREFETCH_RANGE = 2;
+
 export const PhotoViewer: React.FC<PhotoViewerProps> = ({
   photos,
   currentIndex,
@@ -20,6 +22,7 @@ export const PhotoViewer: React.FC<PhotoViewerProps> = ({
   const containerRef = useRef<HTMLDivElement>(null);
   const [fullImageBase64, setFullImageBase64] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
+  const cacheRef = useRef<Map<string, string>>(new Map());
 
   const photo = photos[currentIndex];
 
@@ -31,19 +34,72 @@ export const PhotoViewer: React.FC<PhotoViewerProps> = ({
     if (currentIndex < photos.length - 1) onNavigate(currentIndex + 1);
   }, [currentIndex, photos.length, onNavigate]);
 
-  // Load full image when index changes
+  // Load current image (from cache or fetch) + prefetch neighbors
   useEffect(() => {
     if (!photo) return;
-    setLoading(true);
-    setFullImageBase64(null);
-    invoke<string>("read_photo_base64", { filePath: photo.file_path })
-      .then((data) => setFullImageBase64(data))
-      .catch((err) => {
-        console.error("Failed to load full photo:", err);
-        setFullImageBase64(null);
-      })
-      .finally(() => setLoading(false));
-  }, [photo?.file_path]);
+    let cancelled = false;
+    const cache = cacheRef.current;
+    const fp = photo.file_path;
+
+    // Check cache first
+    const cached = cache.get(fp);
+    if (cached) {
+      setFullImageBase64(cached);
+      setLoading(false);
+    } else {
+      setLoading(true);
+      setFullImageBase64(null);
+      invoke<string>("read_photo_base64", { filePath: fp })
+        .then((data) => {
+          if (!cancelled) {
+            cache.set(fp, data);
+            setFullImageBase64(data);
+          }
+        })
+        .catch((err) => {
+          console.error("Failed to load full photo:", err);
+          if (!cancelled) setFullImageBase64(null);
+        })
+        .finally(() => {
+          if (!cancelled) setLoading(false);
+        });
+    }
+
+    // Prefetch ±PREFETCH_RANGE neighbors in the background
+    const toPreload: string[] = [];
+    for (let offset = -PREFETCH_RANGE; offset <= PREFETCH_RANGE; offset++) {
+      if (offset === 0) continue;
+      const idx = currentIndex + offset;
+      if (idx >= 0 && idx < photos.length) {
+        const neighborFp = photos[idx].file_path;
+        if (!cache.has(neighborFp)) {
+          toPreload.push(neighborFp);
+        }
+      }
+    }
+
+    // Fire prefetch requests (non-blocking, errors ignored)
+    for (const pfp of toPreload) {
+      invoke<string>("read_photo_base64", { filePath: pfp })
+        .then((data) => {
+          cache.set(pfp, data);
+        })
+        .catch(() => {});
+    }
+
+    // Evict cache entries far from current index to limit memory
+    const keepPaths = new Set<string>();
+    for (let i = Math.max(0, currentIndex - PREFETCH_RANGE - 1); i <= Math.min(photos.length - 1, currentIndex + PREFETCH_RANGE + 1); i++) {
+      keepPaths.add(photos[i].file_path);
+    }
+    for (const key of cache.keys()) {
+      if (!keepPaths.has(key)) {
+        cache.delete(key);
+      }
+    }
+
+    return () => { cancelled = true; };
+  }, [photo?.file_path, currentIndex, photos]);
 
   // Keyboard navigation
   useEffect(() => {

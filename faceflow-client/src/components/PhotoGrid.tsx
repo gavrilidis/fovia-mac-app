@@ -157,6 +157,22 @@ const PhotoCard: React.FC<{
         />
       )}
 
+      {/* Quality indicators: closed eyes + blur */}
+      {meta && meta.closed_eyes && (
+        <div className="absolute right-3 bottom-3 flex h-5 items-center gap-1 rounded-full bg-warning/90 px-1.5 shadow-sm" title="Closed eyes detected">
+          <svg className="h-3 w-3 text-white" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+            <path strokeLinecap="round" strokeLinejoin="round" d="M3.98 8.223A10.477 10.477 0 001.934 12c1.292 4.338 5.31 7.5 10.066 7.5.993 0 1.953-.138 2.863-.395M6.228 6.228A10.45 10.45 0 0112 4.5c4.756 0 8.773 3.162 10.065 7.498a10.523 10.523 0 01-4.293 5.774M6.228 6.228L3 3m3.228 3.228l3.65 3.65m7.894 7.894L21 21m-3.228-3.228l-3.65-3.65m0 0a3 3 0 10-4.243-4.243m4.242 4.242L9.88 9.88" />
+          </svg>
+        </div>
+      )}
+      {meta && meta.blur_score !== null && meta.blur_score < 50 && !meta.closed_eyes && (
+        <div className="absolute right-3 bottom-3 flex h-5 items-center gap-1 rounded-full bg-fg-muted/70 px-1.5 shadow-sm" title="Low sharpness">
+          <svg className="h-3 w-3 text-white" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+            <path strokeLinecap="round" strokeLinejoin="round" d="M12 9v3.75m-9.303 3.376c-.866 1.5.217 3.374 1.948 3.374h14.71c1.73 0 2.813-1.874 1.948-3.374L13.949 3.378c-.866-1.5-3.032-1.5-3.898 0L2.697 16.126zM12 15.75h.007v.008H12v-.008z" />
+          </svg>
+        </div>
+      )}
+
       {/* Hover overlay */}
       <div className="absolute inset-x-0 bottom-0 bg-gradient-to-t from-black/80 via-black/40 to-transparent px-4 pb-3.5 pt-10 opacity-0 transition-opacity duration-250 group-hover:opacity-100">
         {/* Star rating (inline in overlay) */}

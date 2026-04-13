@@ -7,7 +7,7 @@ use serde::{Deserialize, Serialize};
 use sysinfo::Disks;
 use tauri::{AppHandle, Emitter, Manager};
 
-use crate::services::{activation, database, extractor, inference::FaceModels, scanner};
+use crate::services::{activation, database, extractor, inference::FaceModels, scanner, xmp};
 
 /// Maximum retries for transient inference failures.
 const MAX_RETRIES: u32 = 3;
@@ -109,6 +109,16 @@ pub struct ExportConfig {
     pub max_dimension: Option<u32>,
     pub jpeg_quality: Option<u8>,
     pub watermark_text: String,
+    pub export_by_faces: bool,
+    /// Map of person label → list of file paths belonging to that person.
+    /// Only used when `export_by_faces` is true.
+    pub face_groups: Option<Vec<FaceGroupExport>>,
+}
+
+#[derive(Debug, Serialize, Deserialize, Clone)]
+pub struct FaceGroupExport {
+    pub label: String,
+    pub file_paths: Vec<String>,
 }
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
@@ -742,6 +752,18 @@ pub async fn scan_folder(
             database::insert_scanned_file(&conn, &file_path_str, &scan_id, &file_hash)?;
         }
 
+        // Compute quality metrics (blur + closed eyes) and persist
+        {
+            let blur = compute_blur_from_bytes(&image_bytes).unwrap_or(0.0);
+            let has_closed_eyes = detected
+                .iter()
+                .any(|f| is_eyes_closed(&image_bytes, &f.landmarks));
+
+            let db = app.state::<DbState>();
+            let conn = db.0.lock().map_err(|e| format!("DB lock poisoned: {e}"))?;
+            database::set_quality_metrics(&conn, &file_path_str, blur, blur, has_closed_eyes)?;
+        }
+
         processed += 1;
     }
 
@@ -816,6 +838,13 @@ pub fn set_photo_rating(
     let conn = db.0.lock().map_err(|e| format!("DB lock poisoned: {e}"))?;
     for fp in &file_paths {
         database::set_rating(&conn, fp, rating)?;
+        // Write XMP sidecar with current metadata
+        let meta = database::get_photo_metadata(&conn, fp)?;
+        if let Some(m) = meta {
+            if let Err(e) = xmp::write_xmp_sidecar(fp, m.rating, &m.color_label, &m.pick_status) {
+                log::warn!("XMP sidecar write failed for {fp}: {e}");
+            }
+        }
     }
     Ok(())
 }
@@ -834,6 +863,12 @@ pub fn set_photo_color_label(
     let conn = db.0.lock().map_err(|e| format!("DB lock poisoned: {e}"))?;
     for fp in &file_paths {
         database::set_color_label(&conn, fp, &label)?;
+        let meta = database::get_photo_metadata(&conn, fp)?;
+        if let Some(m) = meta {
+            if let Err(e) = xmp::write_xmp_sidecar(fp, m.rating, &m.color_label, &m.pick_status) {
+                log::warn!("XMP sidecar write failed for {fp}: {e}");
+            }
+        }
     }
     Ok(())
 }
@@ -852,6 +887,12 @@ pub fn set_photo_pick_status(
     let conn = db.0.lock().map_err(|e| format!("DB lock poisoned: {e}"))?;
     for fp in &file_paths {
         database::set_pick_status(&conn, fp, &status)?;
+        let meta = database::get_photo_metadata(&conn, fp)?;
+        if let Some(m) = meta {
+            if let Err(e) = xmp::write_xmp_sidecar(fp, m.rating, &m.color_label, &m.pick_status) {
+                log::warn!("XMP sidecar write failed for {fp}: {e}");
+            }
+        }
     }
     Ok(())
 }
@@ -1050,6 +1091,21 @@ pub async fn export_photos(file_paths: Vec<String>, config: ExportConfig) -> Res
         std::fs::create_dir_all(&dest).map_err(|e| format!("Failed to create destination: {e}"))?;
     }
 
+    // When exporting by faces, build a mapping: file_path → subfolder label
+    let face_folder_map: std::collections::HashMap<String, String> = if config.export_by_faces {
+        let mut map = std::collections::HashMap::new();
+        if let Some(groups) = &config.face_groups {
+            for group in groups {
+                for fp in &group.file_paths {
+                    map.insert(fp.clone(), group.label.clone());
+                }
+            }
+        }
+        map
+    } else {
+        std::collections::HashMap::new()
+    };
+
     let mut exported = 0usize;
     for (i, src_path) in file_paths.iter().enumerate() {
         let src = std::path::Path::new(src_path);
@@ -1057,6 +1113,27 @@ pub async fn export_photos(file_paths: Vec<String>, config: ExportConfig) -> Res
             log::warn!("Export: skipping missing file {}", src_path);
             continue;
         }
+
+        // Determine output directory (subfolder per face when enabled)
+        let out_dir = if config.export_by_faces {
+            if let Some(label) = face_folder_map.get(src_path) {
+                let sub = dest.join(label);
+                if !sub.exists() {
+                    std::fs::create_dir_all(&sub)
+                        .map_err(|e| format!("Failed to create subfolder: {e}"))?;
+                }
+                sub
+            } else {
+                let sub = dest.join("Unsorted");
+                if !sub.exists() {
+                    std::fs::create_dir_all(&sub)
+                        .map_err(|e| format!("Failed to create Unsorted folder: {e}"))?;
+                }
+                sub
+            }
+        } else {
+            dest.clone()
+        };
 
         // Determine output filename
         let original_name = src
@@ -1080,26 +1157,30 @@ pub async fn export_photos(file_paths: Vec<String>, config: ExportConfig) -> Res
                 .replace("{ext}", &ext)
         };
 
-        let output_path = dest.join(&output_name);
+        let output_path = out_dir.join(&output_name);
 
-        if let Some(max_dim) = config.max_dimension {
-            // Resize and re-encode
+        if config.max_dimension.is_some() || !config.watermark_text.is_empty() {
+            // Need to process the image (resize / watermark)
             let raw_bytes =
                 std::fs::read(src).map_err(|e| format!("Failed to read {}: {e}", src_path))?;
-            let img = image::load_from_memory(&raw_bytes)
+            let mut img = image::load_from_memory(&raw_bytes)
                 .map_err(|e| format!("Failed to decode {}: {e}", src_path))?;
 
-            let resized = if img.width() > max_dim || img.height() > max_dim {
-                img.resize(max_dim, max_dim, image::imageops::FilterType::Lanczos3)
-            } else {
-                img
-            };
+            if let Some(max_dim) = config.max_dimension {
+                if img.width() > max_dim || img.height() > max_dim {
+                    img = img.resize(max_dim, max_dim, image::imageops::FilterType::Lanczos3);
+                }
+            }
+
+            // Apply watermark text (bottom-right, semi-transparent white)
+            if !config.watermark_text.is_empty() {
+                apply_watermark(&mut img, &config.watermark_text);
+            }
 
             let quality = config.jpeg_quality.unwrap_or(90);
             let mut buf = std::io::Cursor::new(Vec::new());
             let encoder = image::codecs::jpeg::JpegEncoder::new_with_quality(&mut buf, quality);
-            resized
-                .write_with_encoder(encoder)
+            img.write_with_encoder(encoder)
                 .map_err(|e| format!("Failed to encode {}: {e}", src_path))?;
 
             let jpeg_path = output_path.with_extension("jpg");
@@ -1115,6 +1196,187 @@ pub async fn export_photos(file_paths: Vec<String>, config: ExportConfig) -> Res
     }
 
     Ok(exported)
+}
+
+/// Burn a text watermark into the bottom-right corner of an image.
+/// Uses pixel-level rendering (no external font crate) — draws each ASCII
+/// character as a simple 5x7 bitmap glyph, scaled to ~2% of image height.
+fn apply_watermark(img: &mut image::DynamicImage, text: &str) {
+    let (iw, ih) = (img.width(), img.height());
+    let glyph_h = ((ih as f32) * 0.02).max(10.0) as u32;
+    let glyph_w = (glyph_h as f32 * 0.6) as u32;
+    let spacing = (glyph_w as f32 * 0.2) as u32;
+    let padding = glyph_h;
+
+    let text_width = text.len() as u32 * (glyph_w + spacing);
+    let start_x = iw.saturating_sub(text_width + padding);
+    let start_y = ih.saturating_sub(glyph_h + padding);
+
+    let rgba = img.as_mut_rgba8();
+    if let Some(buf) = rgba {
+        for (ci, ch) in text.chars().enumerate() {
+            let cx = start_x + ci as u32 * (glyph_w + spacing);
+            let bitmap = char_bitmap(ch);
+            for row in 0..7u32 {
+                for col in 0..5u32 {
+                    if bitmap[row as usize] & (1 << (4 - col)) != 0 {
+                        let px = cx + col * glyph_w / 5;
+                        let py = start_y + row * glyph_h / 7;
+                        for dy in 0..(glyph_h / 7).max(1) {
+                            for dx in 0..(glyph_w / 5).max(1) {
+                                let x = px + dx;
+                                let y = py + dy;
+                                if x < iw && y < ih {
+                                    let pixel = buf.get_pixel_mut(x, y);
+                                    // Semi-transparent white overlay (alpha blend)
+                                    let alpha = 180u8;
+                                    pixel[0] = ((pixel[0] as u16 * (255 - alpha as u16)
+                                        + 255 * alpha as u16)
+                                        / 255) as u8;
+                                    pixel[1] = ((pixel[1] as u16 * (255 - alpha as u16)
+                                        + 255 * alpha as u16)
+                                        / 255) as u8;
+                                    pixel[2] = ((pixel[2] as u16 * (255 - alpha as u16)
+                                        + 255 * alpha as u16)
+                                        / 255) as u8;
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+}
+
+/// Simple 5x7 bitmap font for ASCII printable characters.
+/// Each u8 is a row of 5 bits (MSB = leftmost pixel).
+fn char_bitmap(c: char) -> [u8; 7] {
+    match c {
+        'A' | 'a' => [
+            0b01110, 0b10001, 0b10001, 0b11111, 0b10001, 0b10001, 0b10001,
+        ],
+        'B' | 'b' => [
+            0b11110, 0b10001, 0b10001, 0b11110, 0b10001, 0b10001, 0b11110,
+        ],
+        'C' | 'c' => [
+            0b01110, 0b10001, 0b10000, 0b10000, 0b10000, 0b10001, 0b01110,
+        ],
+        'D' | 'd' => [
+            0b11110, 0b10001, 0b10001, 0b10001, 0b10001, 0b10001, 0b11110,
+        ],
+        'E' | 'e' => [
+            0b11111, 0b10000, 0b10000, 0b11110, 0b10000, 0b10000, 0b11111,
+        ],
+        'F' | 'f' => [
+            0b11111, 0b10000, 0b10000, 0b11110, 0b10000, 0b10000, 0b10000,
+        ],
+        'G' | 'g' => [
+            0b01110, 0b10001, 0b10000, 0b10111, 0b10001, 0b10001, 0b01110,
+        ],
+        'H' | 'h' => [
+            0b10001, 0b10001, 0b10001, 0b11111, 0b10001, 0b10001, 0b10001,
+        ],
+        'I' | 'i' => [
+            0b01110, 0b00100, 0b00100, 0b00100, 0b00100, 0b00100, 0b01110,
+        ],
+        'J' | 'j' => [
+            0b00111, 0b00010, 0b00010, 0b00010, 0b00010, 0b10010, 0b01100,
+        ],
+        'K' | 'k' => [
+            0b10001, 0b10010, 0b10100, 0b11000, 0b10100, 0b10010, 0b10001,
+        ],
+        'L' | 'l' => [
+            0b10000, 0b10000, 0b10000, 0b10000, 0b10000, 0b10000, 0b11111,
+        ],
+        'M' | 'm' => [
+            0b10001, 0b11011, 0b10101, 0b10101, 0b10001, 0b10001, 0b10001,
+        ],
+        'N' | 'n' => [
+            0b10001, 0b11001, 0b10101, 0b10011, 0b10001, 0b10001, 0b10001,
+        ],
+        'O' | 'o' => [
+            0b01110, 0b10001, 0b10001, 0b10001, 0b10001, 0b10001, 0b01110,
+        ],
+        'P' | 'p' => [
+            0b11110, 0b10001, 0b10001, 0b11110, 0b10000, 0b10000, 0b10000,
+        ],
+        'Q' | 'q' => [
+            0b01110, 0b10001, 0b10001, 0b10001, 0b10101, 0b10010, 0b01101,
+        ],
+        'R' | 'r' => [
+            0b11110, 0b10001, 0b10001, 0b11110, 0b10100, 0b10010, 0b10001,
+        ],
+        'S' | 's' => [
+            0b01110, 0b10001, 0b10000, 0b01110, 0b00001, 0b10001, 0b01110,
+        ],
+        'T' | 't' => [
+            0b11111, 0b00100, 0b00100, 0b00100, 0b00100, 0b00100, 0b00100,
+        ],
+        'U' | 'u' => [
+            0b10001, 0b10001, 0b10001, 0b10001, 0b10001, 0b10001, 0b01110,
+        ],
+        'V' | 'v' => [
+            0b10001, 0b10001, 0b10001, 0b10001, 0b10001, 0b01010, 0b00100,
+        ],
+        'W' | 'w' => [
+            0b10001, 0b10001, 0b10001, 0b10101, 0b10101, 0b11011, 0b10001,
+        ],
+        'X' | 'x' => [
+            0b10001, 0b10001, 0b01010, 0b00100, 0b01010, 0b10001, 0b10001,
+        ],
+        'Y' | 'y' => [
+            0b10001, 0b10001, 0b01010, 0b00100, 0b00100, 0b00100, 0b00100,
+        ],
+        'Z' | 'z' => [
+            0b11111, 0b00001, 0b00010, 0b00100, 0b01000, 0b10000, 0b11111,
+        ],
+        '0' => [
+            0b01110, 0b10001, 0b10011, 0b10101, 0b11001, 0b10001, 0b01110,
+        ],
+        '1' => [
+            0b00100, 0b01100, 0b00100, 0b00100, 0b00100, 0b00100, 0b01110,
+        ],
+        '2' => [
+            0b01110, 0b10001, 0b00001, 0b00110, 0b01000, 0b10000, 0b11111,
+        ],
+        '3' => [
+            0b01110, 0b10001, 0b00001, 0b00110, 0b00001, 0b10001, 0b01110,
+        ],
+        '4' => [
+            0b00010, 0b00110, 0b01010, 0b10010, 0b11111, 0b00010, 0b00010,
+        ],
+        '5' => [
+            0b11111, 0b10000, 0b11110, 0b00001, 0b00001, 0b10001, 0b01110,
+        ],
+        '6' => [
+            0b01110, 0b10000, 0b11110, 0b10001, 0b10001, 0b10001, 0b01110,
+        ],
+        '7' => [
+            0b11111, 0b00001, 0b00010, 0b00100, 0b01000, 0b01000, 0b01000,
+        ],
+        '8' => [
+            0b01110, 0b10001, 0b10001, 0b01110, 0b10001, 0b10001, 0b01110,
+        ],
+        '9' => [
+            0b01110, 0b10001, 0b10001, 0b01111, 0b00001, 0b00001, 0b01110,
+        ],
+        ' ' => [
+            0b00000, 0b00000, 0b00000, 0b00000, 0b00000, 0b00000, 0b00000,
+        ],
+        '.' => [
+            0b00000, 0b00000, 0b00000, 0b00000, 0b00000, 0b00000, 0b00100,
+        ],
+        '-' => [
+            0b00000, 0b00000, 0b00000, 0b11111, 0b00000, 0b00000, 0b00000,
+        ],
+        '@' => [
+            0b01110, 0b10001, 0b10111, 0b10101, 0b10111, 0b10000, 0b01110,
+        ],
+        _ => [
+            0b01110, 0b10001, 0b00001, 0b00010, 0b00100, 0b00000, 0b00100,
+        ], // '?' fallback
+    }
 }
 
 // ---- Event grouping ----
@@ -1294,4 +1556,116 @@ fn parse_exif_datetime(dt: &str) -> Option<u64> {
     // Approximate Unix timestamp (doesn't need to be exact, just consistent for gap detection)
     let days = (year - 1970) * 365 + (month - 1) * 30 + day;
     Some(days * 86400 + hour * 3600 + min * 60 + sec)
+}
+
+/// Compute Laplacian variance (blur score) directly from in-memory JPEG bytes.
+fn compute_blur_from_bytes(image_bytes: &[u8]) -> Result<f64, String> {
+    let img = image::load_from_memory(image_bytes)
+        .map_err(|e| format!("Failed to decode image for blur: {e}"))?
+        .to_luma8();
+
+    let (w, h) = (img.width() as i64, img.height() as i64);
+    if w < 3 || h < 3 {
+        return Ok(0.0);
+    }
+
+    let mut sum = 0.0f64;
+    let mut sum_sq = 0.0f64;
+    let mut count = 0u64;
+
+    for y in 1..(h - 1) {
+        for x in 1..(w - 1) {
+            let center = img.get_pixel(x as u32, y as u32)[0] as f64;
+            let top = img.get_pixel(x as u32, (y - 1) as u32)[0] as f64;
+            let bottom = img.get_pixel(x as u32, (y + 1) as u32)[0] as f64;
+            let left = img.get_pixel((x - 1) as u32, y as u32)[0] as f64;
+            let right = img.get_pixel((x + 1) as u32, y as u32)[0] as f64;
+            let laplacian = -4.0 * center + top + bottom + left + right;
+            sum += laplacian;
+            sum_sq += laplacian * laplacian;
+            count += 1;
+        }
+    }
+
+    if count == 0 {
+        return Ok(0.0);
+    }
+    let mean = sum / count as f64;
+    Ok((sum_sq / count as f64) - (mean * mean))
+}
+
+/// Detect closed eyes by analysing the gradient variance in the eye regions
+/// relative to the overall face region.
+///
+/// Landmarks: [0]=left-eye, [1]=right-eye, [2]=nose, [3]=left-mouth, [4]=right-mouth.
+/// Closed eyes produce significantly smoother (lower variance) eye-region patches
+/// compared to open eyes.
+fn is_eyes_closed(image_bytes: &[u8], landmarks: &[[f32; 2]; 5]) -> bool {
+    let img = match image::load_from_memory(image_bytes) {
+        Ok(i) => i.to_luma8(),
+        Err(_) => return false,
+    };
+
+    let (iw, ih) = (img.width() as f32, img.height() as f32);
+
+    // Estimate eye-region size from inter-eye distance
+    let eye_dist = ((landmarks[1][0] - landmarks[0][0]).powi(2)
+        + (landmarks[1][1] - landmarks[0][1]).powi(2))
+    .sqrt();
+    let patch_half = (eye_dist * 0.25).max(4.0);
+
+    let mut total_var = 0.0f64;
+    let mut eye_count = 0;
+
+    for eye_idx in 0..2 {
+        let cx = landmarks[eye_idx][0];
+        let cy = landmarks[eye_idx][1];
+
+        let x1 = (cx - patch_half).max(0.0) as u32;
+        let y1 = (cy - patch_half * 0.6).max(0.0) as u32;
+        let x2 = ((cx + patch_half) as u32).min(img.width().saturating_sub(1));
+        let y2 = ((cy + patch_half * 0.6) as u32).min(img.height().saturating_sub(1));
+
+        if x2 <= x1 + 2 || y2 <= y1 + 2 {
+            continue;
+        }
+
+        // Compute Laplacian variance in the eye patch
+        let mut sum = 0.0f64;
+        let mut sum_sq = 0.0f64;
+        let mut n = 0u64;
+
+        for y in (y1 + 1)..y2 {
+            for x in (x1 + 1)..x2 {
+                let c = img.get_pixel(x, y)[0] as f64;
+                let t = img.get_pixel(x, y - 1)[0] as f64;
+                let b = img.get_pixel(x, y + 1)[0] as f64;
+                let l = img.get_pixel(x - 1, y)[0] as f64;
+                let r = img.get_pixel(x + 1, y)[0] as f64;
+                let lap = -4.0 * c + t + b + l + r;
+                sum += lap;
+                sum_sq += lap * lap;
+                n += 1;
+            }
+        }
+
+        if n > 0 {
+            let mean = sum / n as f64;
+            let var = (sum_sq / n as f64) - (mean * mean);
+            total_var += var;
+            eye_count += 1;
+        }
+    }
+
+    if eye_count == 0 {
+        return false;
+    }
+
+    let avg_eye_var = total_var / eye_count as f64;
+
+    // Threshold: below this Laplacian variance in the eye region → likely closed.
+    // Tuned empirically: open eyes have strong edge gradients (~200+),
+    // closed eyes are smoother (~50-100).
+    let _ = (iw, ih); // suppress unused
+    avg_eye_var < 80.0
 }

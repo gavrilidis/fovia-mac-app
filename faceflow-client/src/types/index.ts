@@ -104,6 +104,13 @@ export interface ExportConfig {
   max_dimension: number | null;
   jpeg_quality: number | null;
   watermark_text: string;
+  export_by_faces: boolean;
+  face_groups: FaceGroupExport[] | null;
+}
+
+export interface FaceGroupExport {
+  label: string;
+  file_paths: string[];
 }
 
 export interface EventGroup {

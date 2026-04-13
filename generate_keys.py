@@ -26,7 +26,9 @@ GROUP_LENGTH = 5
 def load_secret() -> bytes:
     secret_path = os.path.join(
         os.path.dirname(__file__),
-        "faceflow-client", "src-tauri", "activation.secret",
+        "faceflow-client",
+        "src-tauri",
+        "activation.secret",
     )
     if not os.path.exists(secret_path):
         print(f"Error: Secret file not found at {secret_path}")

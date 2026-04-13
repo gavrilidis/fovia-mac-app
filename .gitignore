@@ -54,3 +54,4 @@ npm-debug.log*
 .DS_Store
 .Spotlight-V100
 .Trashes
+repomix-output.xml
