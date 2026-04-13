@@ -214,18 +214,28 @@ pub fn check_activation(app: AppHandle) -> Result<bool, String> {
     Ok(activation::is_activated(&app_data))
 }
 
-/// Attempt to activate with a serial key. Returns true on success.
+/// Attempt to activate with a serial key. Returns Ok(true) on success.
+/// Validates the key format locally, then checks Supabase to ensure the key
+/// is not already bound to a different machine.
 #[tauri::command]
-pub fn activate_app(app: AppHandle, serial_key: String) -> Result<bool, String> {
+pub async fn activate_app(app: AppHandle, serial_key: String) -> Result<bool, String> {
     if !activation::validate_key(&serial_key) {
         return Ok(false);
     }
+
+    // Get this Mac's hardware UUID
+    let machine_id = activation::get_machine_id()?;
+
+    // Online check: register or verify this key+machine pair
+    activation::activate_online(&serial_key, &machine_id).await?;
+
+    // Passed online check — save locally
     let app_data = app
         .path()
         .app_data_dir()
         .map_err(|e| format!("Failed to get app data dir: {e}"))?;
     activation::save_license(&app_data, &serial_key)?;
-    log::info!("App activated successfully");
+    log::info!("App activated successfully (machine: {})", machine_id);
     Ok(true)
 }
 
