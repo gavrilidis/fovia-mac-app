@@ -7,7 +7,7 @@ use serde::{Deserialize, Serialize};
 use sysinfo::Disks;
 use tauri::{AppHandle, Emitter, Manager};
 
-use crate::services::{database, extractor, inference::FaceModels, scanner};
+use crate::services::{activation, database, extractor, inference::FaceModels, scanner};
 
 /// Maximum retries for transient inference failures.
 const MAX_RETRIES: u32 = 3;
@@ -190,6 +190,45 @@ pub fn read_photo_base64(file_path: String) -> Result<String, String> {
 
     let image_bytes = extractor::extract_image_bytes(path)?;
     Ok(BASE64.encode(&image_bytes))
+}
+
+// ── Activation commands ──────────────────────────────────────────────
+
+/// Check if the app is activated (valid license.key exists).
+#[tauri::command]
+pub fn check_activation(app: AppHandle) -> Result<bool, String> {
+    let app_data = app
+        .path()
+        .app_data_dir()
+        .map_err(|e| format!("Failed to get app data dir: {e}"))?;
+    Ok(activation::is_activated(&app_data))
+}
+
+/// Attempt to activate with a serial key. Returns true on success.
+#[tauri::command]
+pub fn activate_app(app: AppHandle, serial_key: String) -> Result<bool, String> {
+    if !activation::validate_key(&serial_key) {
+        return Ok(false);
+    }
+    let app_data = app
+        .path()
+        .app_data_dir()
+        .map_err(|e| format!("Failed to get app data dir: {e}"))?;
+    activation::save_license(&app_data, &serial_key)?;
+    log::info!("App activated successfully");
+    Ok(true)
+}
+
+/// Remove the license (deactivate the app).
+#[tauri::command]
+pub fn deactivate_app(app: AppHandle) -> Result<(), String> {
+    let app_data = app
+        .path()
+        .app_data_dir()
+        .map_err(|e| format!("Failed to get app data dir: {e}"))?;
+    activation::remove_license(&app_data)?;
+    log::info!("App deactivated");
+    Ok(())
 }
 
 /// Check whether ONNX models are downloaded and ready.

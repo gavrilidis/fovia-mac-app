@@ -36,6 +36,9 @@ pub fn run() {
             Ok(())
         })
         .invoke_handler(tauri::generate_handler![
+            commands::scan::check_activation,
+            commands::scan::activate_app,
+            commands::scan::deactivate_app,
             commands::scan::scan_folder,
             commands::scan::list_volumes,
             commands::scan::reveal_in_finder,

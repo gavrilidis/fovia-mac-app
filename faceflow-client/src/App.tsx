@@ -6,11 +6,13 @@ import { getCurrentWebviewWindow } from "@tauri-apps/api/webviewWindow";
 import { DropZone } from "./components/DropZone";
 import { ProgressView } from "./components/ProgressView";
 import { GalleryView } from "./components/GalleryView";
+import { ActivationView } from "./components/ActivationView";
 import { groupFacesByIdentity } from "./services/faceGrouping";
 import type { AppView, DownloadProgress, FaceGroup, ScanProgress, ScanResult, ModelStatus } from "./types";
 
 function App() {
   const [view, setView] = useState<AppView>("loading");
+  const [activated, setActivated] = useState<boolean | null>(null);
   const [, setModelsReady] = useState(false);
   const [modelsDir, setModelsDir] = useState("");
   const [downloadStatus, setDownloadStatus] = useState("");
@@ -63,10 +65,15 @@ function App() {
     }
   }, []);
 
-  // Check and load models on startup
+  // Check activation, then check and load models on startup
   useEffect(() => {
     const init = async () => {
       try {
+        // Check activation first
+        const isActivated = await invoke<boolean>("check_activation");
+        setActivated(isActivated);
+        if (!isActivated) return;
+
         const status = await invoke<ModelStatus>("check_models");
         setModelsDir(status.models_dir);
 
@@ -162,6 +169,41 @@ function App() {
     if ((e.target as HTMLElement).closest("button, input, a, select, textarea")) return;
     getCurrentWindow().startDragging();
   }, []);
+
+  const handleActivated = useCallback(() => {
+    setActivated(true);
+    setView("loading");
+    // Re-trigger model init
+    const init = async () => {
+      try {
+        const status = await invoke<ModelStatus>("check_models");
+        setModelsDir(status.models_dir);
+        if (!status.models_ready || !status.exiftool_ready) {
+          setModelsReady(false);
+          setView("setup");
+          handleRetryModels();
+          return;
+        }
+        await invoke("load_models");
+        setModelsReady(true);
+        setView("dropzone");
+      } catch (err) {
+        const msg = typeof err === "string" ? err : "Failed to initialize";
+        setError(msg);
+        setView("setup");
+      }
+    };
+    init();
+  }, [handleRetryModels]);
+
+  // Show activation gate
+  if (activated === false) {
+    return (
+      <div className="flex h-screen w-screen flex-col bg-surface">
+        <ActivationView onActivated={handleActivated} />
+      </div>
+    );
+  }
 
   return (
     <div className="flex h-screen w-screen flex-col bg-surface">

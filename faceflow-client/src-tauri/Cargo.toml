@@ -37,6 +37,8 @@ kamadak-exif = "0.5"
 ort = { version = "2.0.0-rc.12", features = ["download-binaries"] }
 ndarray = "0.17"
 rusqlite = { version = "0.31", features = ["bundled"] }
+hmac = "0.12"
+sha2 = "0.10"
 flate2 = "1"
 tar = "0.4"
 

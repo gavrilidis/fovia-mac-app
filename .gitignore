@@ -20,6 +20,10 @@ venv/
 env/
 *.so
 
+# === Activation (local secrets — never commit) ===
+activation.secret
+activation_keys.txt
+
 # === IDE ===
 .vscode/
 .idea/
