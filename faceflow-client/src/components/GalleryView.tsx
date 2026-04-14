@@ -7,6 +7,7 @@ import { Toolbar } from "./Toolbar";
 import { ExifPanel } from "./ExifPanel";
 import { ExportDialog } from "./ExportDialog";
 import { CompareView } from "./CompareView";
+import { HelpDialog } from "./HelpDialog";
 import { usePhotoMeta } from "../hooks/usePhotoMeta";
 import { useKeyboardShortcuts } from "../hooks/useKeyboardShortcuts";
 
@@ -19,6 +20,10 @@ interface GalleryViewProps {
 const NO_FACES_ID = "__no_faces__";
 
 export const GalleryView: React.FC<GalleryViewProps> = ({ groups, noFaceFiles, onReset }) => {
+  // Mutable groups — allow moving photos between persons
+  const [mutableGroups, setMutableGroups] = React.useState<FaceGroup[]>(groups);
+  const [groupNames, setGroupNames] = React.useState<Map<string, string>>(new Map());
+
   const [activeGroupId, setActiveGroupId] = React.useState<string | null>(
     groups.length > 0 ? groups[0].id : noFaceFiles.length > 0 ? NO_FACES_ID : null,
   );
@@ -27,6 +32,7 @@ export const GalleryView: React.FC<GalleryViewProps> = ({ groups, noFaceFiles, o
   const [showExif, setShowExif] = React.useState(false);
   const [showExport, setShowExport] = React.useState(false);
   const [showCompare, setShowCompare] = React.useState(false);
+  const [showHelp, setShowHelp] = React.useState(false);
 
   // Filters
   const [filterRating, setFilterRating] = React.useState(0);
@@ -39,8 +45,8 @@ export const GalleryView: React.FC<GalleryViewProps> = ({ groups, noFaceFiles, o
   const [eventGap, setEventGap] = React.useState(30);
   const [eventGroups, setEventGroups] = React.useState<EventGroup[]>([]);
 
-  const activeGroup = groups.find((g) => g.id === activeGroupId) || null;
-  const activeIndex = activeGroup ? groups.indexOf(activeGroup) : -1;
+  const activeGroup = mutableGroups.find((g) => g.id === activeGroupId) || null;
+  const activeIndex = activeGroup ? mutableGroups.indexOf(activeGroup) : -1;
   const isNoFacesActive = activeGroupId === NO_FACES_ID;
 
   // Create pseudo-entries for no-face files so PhotoGrid can render them
@@ -62,10 +68,20 @@ export const GalleryView: React.FC<GalleryViewProps> = ({ groups, noFaceFiles, o
 
   const currentPhotos = isNoFacesActive ? noFaceEntries : (activeGroup?.members || []);
 
+  // Global lookup: face_id → FaceEntry (across all groups)
+  const allFacesMap = useMemo(() => {
+    const map = new Map<string, FaceEntry>();
+    for (const g of mutableGroups) {
+      for (const m of g.members) map.set(m.face_id, m);
+    }
+    for (const nf of noFaceEntries) map.set(nf.face_id, nf);
+    return map;
+  }, [mutableGroups, noFaceEntries]);
+
   // Collect all file paths for metadata loading
   const allFilePaths = useMemo(() => {
     const paths = new Set<string>();
-    for (const g of groups) {
+    for (const g of mutableGroups) {
       for (const m of g.members) {
         paths.add(m.file_path);
       }
@@ -74,7 +90,7 @@ export const GalleryView: React.FC<GalleryViewProps> = ({ groups, noFaceFiles, o
       paths.add(fp);
     }
     return Array.from(paths);
-  }, [groups, noFaceFiles]);
+  }, [mutableGroups, noFaceFiles]);
 
   const { metaMap, setRating, setColorLabel, setPickStatus } = usePhotoMeta(allFilePaths);
 
@@ -124,12 +140,13 @@ export const GalleryView: React.FC<GalleryViewProps> = ({ groups, noFaceFiles, o
     });
   }, [currentPhotos, metaMap, filterRating, filterPick, filterLabel, filterQuality]);
 
-  // Resolve selected file paths
+  // Resolve selected file paths — cross-group aware
   const selectedPhotoPaths = useMemo(() => {
-    return filteredPhotos
-      .filter((p) => selectedPhotoIds.has(p.face_id))
-      .map((p) => p.file_path);
-  }, [filteredPhotos, selectedPhotoIds]);
+    return Array.from(selectedPhotoIds)
+      .map((id) => allFacesMap.get(id))
+      .filter((f): f is FaceEntry => f !== undefined)
+      .map((f) => f.file_path);
+  }, [selectedPhotoIds, allFacesMap]);
 
   // Selected EXIF file path (show last selected photo)
   const exifFilePath = useMemo(() => {
@@ -138,14 +155,29 @@ export const GalleryView: React.FC<GalleryViewProps> = ({ groups, noFaceFiles, o
     return null;
   }, [selectedPhotoPaths, filteredPhotos]);
 
-  // Compare photos
+  // Compare photos — cross-group aware
   const comparePhotos = useMemo(() => {
-    return filteredPhotos.filter((p) => selectedPhotoIds.has(p.face_id));
-  }, [filteredPhotos, selectedPhotoIds]);
+    return Array.from(selectedPhotoIds)
+      .map((id) => allFacesMap.get(id))
+      .filter((f): f is FaceEntry => f !== undefined);
+  }, [selectedPhotoIds, allFacesMap]);
 
+  // Count selected photos per group (for sidebar badges)
+  const selectedCountPerGroup = useMemo(() => {
+    const counts = new Map<string, number>();
+    for (const g of mutableGroups) {
+      let count = 0;
+      for (const m of g.members) {
+        if (selectedPhotoIds.has(m.face_id)) count++;
+      }
+      if (count > 0) counts.set(g.id, count);
+    }
+    return counts;
+  }, [mutableGroups, selectedPhotoIds]);
+
+  // Don't clear selection when switching person — cross-group selection
   const handleSetActive = useCallback((groupId: string) => {
     setActiveGroupId(groupId);
-    setSelectedPhotoIds(new Set());
   }, []);
 
   const handleToggleGroupSelect = useCallback((groupId: string) => {
@@ -183,7 +215,7 @@ export const GalleryView: React.FC<GalleryViewProps> = ({ groups, noFaceFiles, o
 
   const handleRevealSelected = useCallback(async () => {
     if (selectedGroupIds.size === 0) return;
-    const filePaths = groups
+    const filePaths = mutableGroups
       .filter((g) => selectedGroupIds.has(g.id))
       .flatMap((g) => g.members.map((m) => m.file_path));
     try {
@@ -191,15 +223,113 @@ export const GalleryView: React.FC<GalleryViewProps> = ({ groups, noFaceFiles, o
     } catch (e) {
       console.error("reveal_in_finder failed", e);
     }
-  }, [groups, selectedGroupIds]);
+  }, [mutableGroups, selectedGroupIds]);
 
   const handleSelectAll = useCallback(() => {
-    setSelectedPhotoIds(new Set(filteredPhotos.map((p) => p.face_id)));
+    setSelectedPhotoIds((prev) => {
+      const next = new Set(prev);
+      for (const p of filteredPhotos) next.add(p.face_id);
+      return next;
+    });
   }, [filteredPhotos]);
 
   const handleDeselectAll = useCallback(() => {
     setSelectedPhotoIds(new Set());
   }, []);
+
+  // Move selected photos to a target person group
+  const handleMovePhotos = useCallback((targetGroupId: string) => {
+    if (selectedPhotoIds.size === 0) return;
+
+    setMutableGroups((prev) => {
+      const facesToMove: FaceEntry[] = [];
+      for (const g of prev) {
+        for (const m of g.members) {
+          if (selectedPhotoIds.has(m.face_id)) facesToMove.push(m);
+        }
+      }
+      if (facesToMove.length === 0) return prev;
+
+      const result = prev.map((g) => {
+        const filtered = g.members.filter((m) => !selectedPhotoIds.has(m.face_id));
+        if (g.id === targetGroupId) {
+          return { ...g, members: [...filtered, ...facesToMove] };
+        }
+        return { ...g, members: filtered };
+      });
+
+      // Update representative for target group
+      return result
+        .map((g) => ({
+          ...g,
+          representative: g.members[0] || g.representative,
+        }))
+        .filter((g) => g.members.length > 0);
+    });
+
+    setSelectedPhotoIds(new Set());
+  }, [selectedPhotoIds]);
+
+  // Create a new person group and move selected photos into it
+  const handleCreateGroupAndMove = useCallback(() => {
+    if (selectedPhotoIds.size === 0) return;
+
+    const newId = `__custom_${Date.now()}`;
+    setMutableGroups((prev) => {
+      const facesToMove: FaceEntry[] = [];
+      for (const g of prev) {
+        for (const m of g.members) {
+          if (selectedPhotoIds.has(m.face_id)) facesToMove.push(m);
+        }
+      }
+      if (facesToMove.length === 0) return prev;
+
+      const cleaned = prev
+        .map((g) => ({
+          ...g,
+          members: g.members.filter((m) => !selectedPhotoIds.has(m.face_id)),
+        }))
+        .map((g) => ({
+          ...g,
+          representative: g.members[0] || g.representative,
+        }))
+        .filter((g) => g.members.length > 0);
+
+      const newGroup: FaceGroup = {
+        id: newId,
+        representative: facesToMove[0],
+        members: facesToMove,
+      };
+
+      return [...cleaned, newGroup];
+    });
+
+    setGroupNames((prev) => {
+      const next = new Map(prev);
+      next.set(newId, `Person (new)`);
+      return next;
+    });
+    setActiveGroupId(newId);
+    setSelectedPhotoIds(new Set());
+  }, [selectedPhotoIds]);
+
+  // Rename a group
+  const handleRenameGroup = useCallback((groupId: string, name: string) => {
+    setGroupNames((prev) => {
+      const next = new Map(prev);
+      if (name.trim()) {
+        next.set(groupId, name.trim());
+      } else {
+        next.delete(groupId);
+      }
+      return next;
+    });
+  }, []);
+
+  // Get display name for a group
+  const getGroupName = useCallback((groupId: string, index: number) => {
+    return groupNames.get(groupId) || `Person ${index + 1}`;
+  }, [groupNames]);
 
   // Keyboard shortcuts
   useKeyboardShortcuts({
@@ -232,7 +362,7 @@ export const GalleryView: React.FC<GalleryViewProps> = ({ groups, noFaceFiles, o
     <div className="flex h-full w-full flex-col">
       {/* Toolbar */}
       <Toolbar
-        groupCount={groups.length}
+        groupCount={mutableGroups.length}
         selectedPhotoCount={selectedPhotoIds.size}
         selectedPhotoPaths={selectedPhotoPaths}
         metaMap={metaMap}
@@ -258,19 +388,28 @@ export const GalleryView: React.FC<GalleryViewProps> = ({ groups, noFaceFiles, o
         eventGap={eventGap}
         onEventGapChange={setEventGap}
         eventCount={eventGroups.length}
+        groups={mutableGroups}
+        groupNames={groupNames}
+        activeGroupId={activeGroupId}
+        onMovePhotos={handleMovePhotos}
+        onCreateGroupAndMove={handleCreateGroupAndMove}
+        onHelp={() => setShowHelp(true)}
       />
 
       {/* Content area */}
       <div className="flex flex-1 overflow-hidden">
         {!eventView && (
           <FaceSidebar
-            groups={groups}
+            groups={mutableGroups}
+            groupNames={groupNames}
             activeGroupId={activeGroupId}
             selectedGroupIds={selectedGroupIds}
+            selectedCountPerGroup={selectedCountPerGroup}
             noFaceCount={noFaceFiles.length}
             onSetActive={handleSetActive}
             onToggleGroupSelect={handleToggleGroupSelect}
             onRevealSelected={handleRevealSelected}
+            onRenameGroup={handleRenameGroup}
           />
         )}
         {eventView ? (
@@ -309,6 +448,8 @@ export const GalleryView: React.FC<GalleryViewProps> = ({ groups, noFaceFiles, o
                       personLabel=""
                       selectedIds={selectedPhotoIds}
                       onToggleSelect={handleTogglePhotoSelect}
+                      onSelectAll={handleSelectAll}
+                      onDeselectAll={handleDeselectAll}
                       hideBbox
                       metaMap={metaMap}
                     />
@@ -320,9 +461,11 @@ export const GalleryView: React.FC<GalleryViewProps> = ({ groups, noFaceFiles, o
         ) : (
           <PhotoGrid
             photos={filteredPhotos}
-            personLabel={isNoFacesActive ? "No Faces" : activeIndex >= 0 ? `Person ${activeIndex + 1}` : ""}
+            personLabel={isNoFacesActive ? "No Faces" : activeIndex >= 0 ? getGroupName(activeGroup!.id, activeIndex) : ""}
             selectedIds={selectedPhotoIds}
             onToggleSelect={handleTogglePhotoSelect}
+            onSelectAll={handleSelectAll}
+            onDeselectAll={handleDeselectAll}
             hideBbox={isNoFacesActive}
             metaMap={metaMap}
           />
@@ -334,10 +477,13 @@ export const GalleryView: React.FC<GalleryViewProps> = ({ groups, noFaceFiles, o
 
       {/* Modals */}
       {showExport && selectedPhotoPaths.length > 0 && (
-        <ExportDialog filePaths={selectedPhotoPaths} groups={groups} onClose={() => setShowExport(false)} />
+        <ExportDialog filePaths={selectedPhotoPaths} groups={mutableGroups} onClose={() => setShowExport(false)} />
       )}
       {showCompare && comparePhotos.length >= 2 && (
         <CompareView photos={comparePhotos} onClose={() => setShowCompare(false)} />
+      )}
+      {showHelp && (
+        <HelpDialog onClose={() => setShowHelp(false)} />
       )}
     </div>
   );

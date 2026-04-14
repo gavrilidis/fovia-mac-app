@@ -1,9 +1,9 @@
-import React, { useCallback } from "react";
+import React, { useCallback, useState, useRef, useEffect } from "react";
 import { getCurrentWindow } from "@tauri-apps/api/window";
 import { StarRating } from "./StarRating";
 import { ColorLabelPicker } from "./ColorLabelPicker";
 import { FaceFlowLogo } from "./FaceFlowLogo";
-import type { ColorLabel, PickStatus, PhotoMeta } from "../types";
+import type { FaceGroup, ColorLabel, PickStatus, PhotoMeta } from "../types";
 
 interface ToolbarProps {
   groupCount: number;
@@ -32,6 +32,13 @@ interface ToolbarProps {
   eventGap: number;
   onEventGapChange: (gap: number) => void;
   eventCount: number;
+  // Move-to-person support
+  groups: FaceGroup[];
+  groupNames: Map<string, string>;
+  activeGroupId: string | null;
+  onMovePhotos: (targetGroupId: string) => void;
+  onCreateGroupAndMove: () => void;
+  onHelp: () => void;
 }
 
 /* Small icon button */
@@ -81,11 +88,32 @@ export const Toolbar: React.FC<ToolbarProps> = ({
   eventGap,
   onEventGapChange,
   eventCount,
+  groups,
+  groupNames,
+  activeGroupId,
+  onMovePhotos,
+  onCreateGroupAndMove,
+  onHelp,
 }) => {
   const handleWindowDrag = useCallback((e: React.MouseEvent) => {
     if ((e.target as HTMLElement).closest("button, input, a, select, textarea")) return;
     getCurrentWindow().startDragging();
   }, []);
+
+  // Move-to dropdown state
+  const [showMoveMenu, setShowMoveMenu] = useState(false);
+  const moveMenuRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    if (!showMoveMenu) return;
+    const handleClickOutside = (e: MouseEvent) => {
+      if (moveMenuRef.current && !moveMenuRef.current.contains(e.target as Node)) {
+        setShowMoveMenu(false);
+      }
+    };
+    document.addEventListener("mousedown", handleClickOutside);
+    return () => document.removeEventListener("mousedown", handleClickOutside);
+  }, [showMoveMenu]);
 
   const selectedMetas = selectedPhotoPaths.map((fp) => metaMap.get(fp)).filter(Boolean);
   const commonRating =
@@ -247,6 +275,12 @@ export const Toolbar: React.FC<ToolbarProps> = ({
             </svg>
           </IconBtn>
 
+          <IconBtn onClick={onHelp} title="Help">
+            <svg className="h-[15px] w-[15px]" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.5}>
+              <path strokeLinecap="round" strokeLinejoin="round" d="M9.879 7.519c1.171-1.025 3.071-1.025 4.242 0 1.172 1.025 1.172 2.687 0 3.712-.203.179-.43.326-.67.442-.745.361-1.45.999-1.45 1.827v.75M21 12a9 9 0 11-18 0 9 9 0 0118 0zm-9 5.25h.008v.008H12v-.008z" />
+            </svg>
+          </IconBtn>
+
           <button
             onClick={onReset}
             title="New Scan"
@@ -315,6 +349,83 @@ export const Toolbar: React.FC<ToolbarProps> = ({
                 <path strokeLinecap="round" strokeLinejoin="round" d="M6 18L18 6M6 6l12 12" />
               </svg>
             </button>
+          </div>
+
+          <div className="h-3.5 w-px bg-edge" />
+
+          {/* Move to person */}
+          <div className="relative" ref={moveMenuRef}>
+            <button
+              onClick={() => setShowMoveMenu((v) => !v)}
+              title="Move selected to another person"
+              className={`flex h-7 items-center gap-1.5 rounded-md border px-2.5 text-[11px] font-medium transition-all duration-150 ${
+                showMoveMenu
+                  ? "border-accent/40 bg-accent/10 text-accent"
+                  : "border-edge text-fg-muted hover:border-edge-light hover:bg-surface-elevated hover:text-fg"
+              }`}
+            >
+              <svg className="h-3.5 w-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                <path strokeLinecap="round" strokeLinejoin="round" d="M7.5 21L3 16.5m0 0L7.5 12M3 16.5h13.5m0-13.5L21 7.5m0 0L16.5 12M21 7.5H7.5" />
+              </svg>
+              Move to...
+            </button>
+            {showMoveMenu && (
+              <div className="absolute left-0 top-full z-50 mt-1 w-52 rounded-lg border border-edge bg-surface shadow-xl">
+                <div className="max-h-60 overflow-y-auto py-1">
+                  {groups.map((g, idx) => {
+                    const isCurrentGroup = g.id === activeGroupId;
+                    const label = groupNames.get(g.id) || `Person ${idx + 1}`;
+                    return (
+                      <button
+                        key={g.id}
+                        disabled={isCurrentGroup}
+                        onClick={() => {
+                          onMovePhotos(g.id);
+                          setShowMoveMenu(false);
+                        }}
+                        className={`flex w-full items-center gap-2.5 px-3 py-1.5 text-left text-[11px] transition-colors ${
+                          isCurrentGroup
+                            ? "cursor-default text-fg-muted/40"
+                            : "text-fg hover:bg-surface-elevated"
+                        }`}
+                      >
+                        <div className="h-5 w-5 flex-shrink-0 overflow-hidden rounded-full bg-surface-elevated">
+                          {g.representative.preview_base64 ? (
+                            <img
+                              src={`data:image/jpeg;base64,${g.representative.preview_base64}`}
+                              alt=""
+                              className="h-full w-full object-cover"
+                            />
+                          ) : (
+                            <svg className="h-full w-full p-0.5 text-fg-muted" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.5}>
+                              <path strokeLinecap="round" strokeLinejoin="round" d="M15.75 6a3.75 3.75 0 11-7.5 0 3.75 3.75 0 017.5 0zM4.501 20.118a7.5 7.5 0 0114.998 0A17.933 17.933 0 0112 21.75c-2.676 0-5.216-.584-7.499-1.632z" />
+                            </svg>
+                          )}
+                        </div>
+                        <span className="truncate">{label}</span>
+                        <span className="ml-auto text-[10px] tabular-nums text-fg-muted">
+                          {g.members.length}
+                        </span>
+                      </button>
+                    );
+                  })}
+                </div>
+                <div className="border-t border-edge">
+                  <button
+                    onClick={() => {
+                      onCreateGroupAndMove();
+                      setShowMoveMenu(false);
+                    }}
+                    className="flex w-full items-center gap-2.5 px-3 py-2 text-left text-[11px] font-medium text-accent transition-colors hover:bg-accent/10"
+                  >
+                    <svg className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                      <path strokeLinecap="round" strokeLinejoin="round" d="M12 4.5v15m7.5-7.5h-15" />
+                    </svg>
+                    New Person
+                  </button>
+                </div>
+              </div>
+            )}
           </div>
 
           {/* Spacer */}

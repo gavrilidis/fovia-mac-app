@@ -3,27 +3,35 @@ import type { FaceGroup } from "../types";
 
 interface FaceSidebarProps {
   groups: FaceGroup[];
+  groupNames: Map<string, string>;
   activeGroupId: string | null;
   selectedGroupIds: Set<string>;
+  selectedCountPerGroup: Map<string, number>;
   noFaceCount: number;
   onSetActive: (groupId: string) => void;
   onToggleGroupSelect: (groupId: string) => void;
   onRevealSelected: () => void;
+  onRenameGroup: (groupId: string, name: string) => void;
 }
 
 const NO_FACES_ID = "__no_faces__";
 
 export const FaceSidebar: React.FC<FaceSidebarProps> = ({
   groups,
+  groupNames,
   activeGroupId,
   selectedGroupIds,
+  selectedCountPerGroup,
   noFaceCount,
   onSetActive,
   onToggleGroupSelect,
   onRevealSelected,
+  onRenameGroup,
 }) => {
   const [hoveredGroup, setHoveredGroup] = useState<string | null>(null);
   const [hoverY, setHoverY] = useState(0);
+  const [editingGroupId, setEditingGroupId] = useState<string | null>(null);
+  const [editValue, setEditValue] = useState("");
 
   const hoveredData = hoveredGroup ? groups.find((g) => g.id === hoveredGroup) : null;
 
@@ -122,12 +130,49 @@ export const FaceSidebar: React.FC<FaceSidebarProps> = ({
                   </div>
 
                   {/* Label */}
-                  <div className="min-w-0 text-left">
-                    <div className="truncate text-[12px] font-medium text-fg">
-                      Person {idx + 1}
-                    </div>
-                    <div className="mt-px text-[10px] tabular-nums text-fg-muted">
-                      {group.members.length} photo{group.members.length !== 1 ? "s" : ""}
+                  <div className="min-w-0 flex-1 text-left">
+                    {editingGroupId === group.id ? (
+                      <input
+                        autoFocus
+                        placeholder="Person name"
+                        value={editValue}
+                        onChange={(e) => setEditValue(e.target.value)}
+                        onBlur={() => {
+                          onRenameGroup(group.id, editValue);
+                          setEditingGroupId(null);
+                        }}
+                        onKeyDown={(e) => {
+                          if (e.key === "Enter") {
+                            onRenameGroup(group.id, editValue);
+                            setEditingGroupId(null);
+                          } else if (e.key === "Escape") {
+                            setEditingGroupId(null);
+                          }
+                        }}
+                        onClick={(e) => e.stopPropagation()}
+                        className="w-full rounded bg-surface px-1 text-[12px] font-medium text-fg outline-none ring-1 ring-accent"
+                      />
+                    ) : (
+                      <div
+                        className="truncate text-[12px] font-medium text-fg"
+                        onDoubleClick={(e) => {
+                          e.stopPropagation();
+                          setEditingGroupId(group.id);
+                          setEditValue(groupNames.get(group.id) || `Person ${idx + 1}`);
+                        }}
+                      >
+                        {groupNames.get(group.id) || `Person ${idx + 1}`}
+                      </div>
+                    )}
+                    <div className="mt-px flex items-center gap-1.5">
+                      <span className="text-[10px] tabular-nums text-fg-muted">
+                        {group.members.length} photo{group.members.length !== 1 ? "s" : ""}
+                      </span>
+                      {(selectedCountPerGroup.get(group.id) || 0) > 0 && (
+                        <span className="inline-flex h-4 min-w-4 items-center justify-center rounded-full bg-accent/20 px-1 text-[9px] tabular-nums font-semibold text-accent">
+                          {selectedCountPerGroup.get(group.id)}
+                        </span>
+                      )}
                     </div>
                   </div>
                 </button>
