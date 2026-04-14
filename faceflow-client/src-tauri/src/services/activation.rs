@@ -1,8 +1,12 @@
 use hmac::{Hmac, Mac};
 use sha2::Sha256;
 use std::path::Path;
+use std::time::{SystemTime, UNIX_EPOCH};
 
 type HmacSha256 = Hmac<Sha256>;
+
+/// Maximum number of days the app works offline before requiring an online check.
+const GRACE_PERIOD_DAYS: u64 = 30;
 
 /// Compile-time embedded secret (read from `activation.secret` via build.rs).
 const SECRET: &str = env!("FACEFLOW_SECRET");
@@ -101,15 +105,10 @@ pub async fn activate_online(key: &str, machine_id: &str) -> Result<(), String> 
 
     if let Some(existing) = records.first() {
         // Key exists — check if same machine
-        let existing_machine = existing["machine_id"]
-            .as_str()
-            .unwrap_or("");
+        let existing_machine = existing["machine_id"].as_str().unwrap_or("");
         if existing_machine == machine_id {
             // Same machine re-activation — update last_check timestamp
-            let update_url = format!(
-                "{}/rest/v1/activations?serial_key=eq.{}",
-                SUPABASE_URL, key
-            );
+            let update_url = format!("{}/rest/v1/activations?serial_key=eq.{}", SUPABASE_URL, key);
             let _ = client
                 .patch(&update_url)
                 .header("apikey", SUPABASE_ANON_KEY)
@@ -120,9 +119,7 @@ pub async fn activate_online(key: &str, machine_id: &str) -> Result<(), String> 
                 .await;
             return Ok(());
         } else {
-            return Err(
-                "This serial number is already activated on another Mac.".to_string(),
-            );
+            return Err("This serial number is already activated on another Mac.".to_string());
         }
     }
 
@@ -182,5 +179,93 @@ pub fn remove_license(app_data: &Path) -> Result<(), String> {
         std::fs::remove_file(&license_path)
             .map_err(|e| format!("Failed to remove license: {e}"))?;
     }
+    let ts_path = app_data.join("last_check.ts");
+    if ts_path.exists() {
+        std::fs::remove_file(&ts_path).ok();
+    }
     Ok(())
+}
+
+/// Save the current Unix timestamp as the last successful online check.
+pub fn save_last_check(app_data: &Path) -> Result<(), String> {
+    let ts = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .map_err(|e| format!("Time error: {e}"))?
+        .as_secs();
+    let ts_path = app_data.join("last_check.ts");
+    std::fs::write(&ts_path, ts.to_string()).map_err(|e| format!("Failed to save last_check: {e}"))
+}
+
+/// Read the stored last-online-check timestamp. Returns None if missing.
+pub fn read_last_check(app_data: &Path) -> Option<u64> {
+    let ts_path = app_data.join("last_check.ts");
+    std::fs::read_to_string(&ts_path)
+        .ok()
+        .and_then(|s| s.trim().parse::<u64>().ok())
+}
+
+/// Check if the grace period has expired (more than 30 days since last online check).
+pub fn is_grace_period_valid(app_data: &Path) -> bool {
+    let Some(last_check) = read_last_check(app_data) else {
+        // No timestamp recorded — treat as expired so the first run must go online
+        return false;
+    };
+    let now = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .map(|d| d.as_secs())
+        .unwrap_or(0);
+    let elapsed_days = (now.saturating_sub(last_check)) / 86400;
+    elapsed_days <= GRACE_PERIOD_DAYS
+}
+
+/// Perform a background online license check. Returns Ok(true) if still valid,
+/// Ok(false) if the key was revoked / bound to another machine, and Err on
+/// network failures (caller should fall back to grace period).
+pub async fn background_check(key: &str, machine_id: &str) -> Result<bool, String> {
+    let client = reqwest::Client::builder()
+        .timeout(std::time::Duration::from_secs(10))
+        .build()
+        .map_err(|e| format!("HTTP client error: {e}"))?;
+
+    let check_url = format!(
+        "{}/rest/v1/activations?serial_key=eq.{}&select=machine_id",
+        SUPABASE_URL, key
+    );
+    let resp = client
+        .get(&check_url)
+        .header("apikey", SUPABASE_ANON_KEY)
+        .header("Authorization", format!("Bearer {}", SUPABASE_ANON_KEY))
+        .send()
+        .await
+        .map_err(|e| format!("Network error: {e}"))?;
+
+    let body = resp
+        .text()
+        .await
+        .map_err(|e| format!("Response read error: {e}"))?;
+
+    let records: Vec<serde_json::Value> =
+        serde_json::from_str(&body).map_err(|e| format!("JSON parse error: {e}"))?;
+
+    if let Some(existing) = records.first() {
+        let existing_machine = existing["machine_id"].as_str().unwrap_or("");
+        if existing_machine == machine_id {
+            // Update last_check on server
+            let update_url = format!("{}/rest/v1/activations?serial_key=eq.{}", SUPABASE_URL, key);
+            let _ = client
+                .patch(&update_url)
+                .header("apikey", SUPABASE_ANON_KEY)
+                .header("Authorization", format!("Bearer {}", SUPABASE_ANON_KEY))
+                .header("Content-Type", "application/json")
+                .body(r#"{"last_check":"now()"}"#)
+                .send()
+                .await;
+            return Ok(true);
+        }
+        // Key moved to different machine
+        return Ok(false);
+    }
+
+    // Key not found in database at all
+    Ok(false)
 }

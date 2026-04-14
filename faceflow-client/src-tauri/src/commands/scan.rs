@@ -204,14 +204,63 @@ pub fn read_photo_base64(file_path: String) -> Result<String, String> {
 
 // ── Activation commands ──────────────────────────────────────────────
 
-/// Check if the app is activated (valid license.key exists).
+/// Check if the app is activated. Performs a background online license check
+/// and falls back to a 30-day grace period when offline.
 #[tauri::command]
-pub fn check_activation(app: AppHandle) -> Result<bool, String> {
+pub async fn check_activation(app: AppHandle) -> Result<bool, String> {
     let app_data = app
         .path()
         .app_data_dir()
         .map_err(|e| format!("Failed to get app data dir: {e}"))?;
-    Ok(activation::is_activated(&app_data))
+
+    if !activation::is_activated(&app_data) {
+        return Ok(false);
+    }
+
+    // Read the stored key for background check
+    let license_path = app_data.join("license.key");
+    let key = std::fs::read_to_string(&license_path).unwrap_or_default();
+    let key = key.trim().to_string();
+
+    if key.is_empty() {
+        return Ok(false);
+    }
+
+    // Try background online verification
+    match activation::get_machine_id() {
+        Ok(machine_id) => {
+            match activation::background_check(&key, &machine_id).await {
+                Ok(true) => {
+                    // Online check passed — update local timestamp
+                    activation::save_last_check(&app_data).ok();
+                    log::info!("Online license check passed");
+                }
+                Ok(false) => {
+                    // Key revoked or moved to another machine — deactivate
+                    log::warn!("License no longer valid online, deactivating");
+                    activation::remove_license(&app_data).ok();
+                    return Ok(false);
+                }
+                Err(e) => {
+                    // Network error — fall back to grace period
+                    log::info!("Online check failed ({}), checking grace period", e);
+                    if !activation::is_grace_period_valid(&app_data) {
+                        log::warn!("Grace period expired, license invalid");
+                        return Ok(false);
+                    }
+                    log::info!("Within grace period, allowing offline use");
+                }
+            }
+        }
+        Err(e) => {
+            log::warn!("Could not get machine ID: {}, checking grace period", e);
+            if !activation::is_grace_period_valid(&app_data) {
+                return Ok(false);
+            }
+        }
+    }
+
+    Ok(true)
 }
 
 /// Attempt to activate with a serial key. Returns Ok(true) on success.
@@ -227,7 +276,13 @@ pub async fn activate_app(app: AppHandle, serial_key: String) -> Result<bool, St
     let machine_id = activation::get_machine_id()?;
 
     // Online check: register or verify this key+machine pair
-    activation::activate_online(&serial_key, &machine_id).await?;
+    activation::activate_online(&serial_key, &machine_id).await.map_err(|e| {
+        if e.contains("Network error") || e.contains("timed out") || e.contains("dns") {
+            "Internet connection is required for first activation. Please connect to the internet and try again.".to_string()
+        } else {
+            e
+        }
+    })?;
 
     // Passed online check — save locally
     let app_data = app
@@ -235,6 +290,7 @@ pub async fn activate_app(app: AppHandle, serial_key: String) -> Result<bool, St
         .app_data_dir()
         .map_err(|e| format!("Failed to get app data dir: {e}"))?;
     activation::save_license(&app_data, &serial_key)?;
+    activation::save_last_check(&app_data).ok();
     log::info!("App activated successfully (machine: {})", machine_id);
     Ok(true)
 }

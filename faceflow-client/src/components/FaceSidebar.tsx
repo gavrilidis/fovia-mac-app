@@ -1,4 +1,4 @@
-import React from "react";
+import React, { useState } from "react";
 import type { FaceGroup } from "../types";
 
 interface FaceSidebarProps {
@@ -22,8 +22,26 @@ export const FaceSidebar: React.FC<FaceSidebarProps> = ({
   onToggleGroupSelect,
   onRevealSelected,
 }) => {
+  const [hoveredGroup, setHoveredGroup] = useState<string | null>(null);
+  const [hoverY, setHoverY] = useState(0);
+
+  const hoveredData = hoveredGroup ? groups.find((g) => g.id === hoveredGroup) : null;
+
   return (
-    <div className="flex h-full w-[240px] flex-shrink-0 flex-col border-r border-edge bg-surface-alt">
+    <div className="relative flex h-full w-[240px] flex-shrink-0 flex-col border-r border-edge bg-surface-alt">
+      {/* Face loupe popup */}
+      {hoveredData && hoveredData.representative.preview_base64 && (
+        <div
+          className="pointer-events-none absolute left-[248px] z-50 overflow-hidden rounded-xl border border-edge bg-surface shadow-xl"
+          style={{ top: Math.max(8, hoverY - 80), width: 160, height: 160 }}
+        >
+          <img
+            src={`data:image/jpeg;base64,${hoveredData.representative.preview_base64}`}
+            alt="Face preview"
+            className="h-full w-full object-cover"
+          />
+        </div>
+      )}
       {/* Header */}
       <div className="flex items-center justify-between px-3 pb-2 pt-3">
         <div className="flex items-center gap-2">
@@ -79,6 +97,11 @@ export const FaceSidebar: React.FC<FaceSidebarProps> = ({
                         ? "ring-accent ring-offset-2 ring-offset-surface-alt"
                         : "ring-transparent"
                     } bg-surface-elevated`}
+                    onMouseEnter={(e) => {
+                      setHoveredGroup(group.id);
+                      setHoverY(e.currentTarget.getBoundingClientRect().top);
+                    }}
+                    onMouseLeave={() => setHoveredGroup(null)}
                   >
                     {group.representative.preview_base64 ? (
                       <img
