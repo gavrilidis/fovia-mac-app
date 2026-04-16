@@ -269,14 +269,17 @@ export const GalleryView: React.FC<GalleryViewProps> = ({ groups, noFaceFiles, o
 
   // AI analyze selected photos
   const handleAiAnalyze = useCallback(async () => {
-    if (selectedPhotoIds.size === 0 || !isAiConfigured()) return;
+    if (!isAiConfigured()) return;
     setAiAnalyzing(true);
     try {
-      const selectedEntries = Array.from(selectedPhotoIds)
-        .map((id) => allFacesMap.get(id))
-        .filter((f): f is FaceEntry => f !== undefined);
+      // If no photos selected, analyze all photos in current view
+      const entriesToAnalyze = selectedPhotoIds.size > 0
+        ? Array.from(selectedPhotoIds)
+            .map((id) => allFacesMap.get(id))
+            .filter((f): f is FaceEntry => f !== undefined)
+        : currentPhotos;
 
-      for (const entry of selectedEntries) {
+      for (const entry of entriesToAnalyze) {
         try {
           // Read photo as base64 via Tauri
           const base64 = await invoke<string>("read_photo_base64", { filePath: entry.file_path });
@@ -297,7 +300,7 @@ export const GalleryView: React.FC<GalleryViewProps> = ({ groups, noFaceFiles, o
     } finally {
       setAiAnalyzing(false);
     }
-  }, [selectedPhotoIds, allFacesMap]);
+  }, [selectedPhotoIds, allFacesMap, currentPhotos]);
 
   // Move selected photos to a target person group
   const handleMovePhotos = useCallback((targetGroupId: string) => {

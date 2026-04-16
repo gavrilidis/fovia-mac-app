@@ -4,6 +4,7 @@ import type { FaceEntry, PhotoMeta } from "../types";
 import { COLOR_LABEL_MAP } from "../types";
 import { PhotoViewer } from "./PhotoViewer";
 import { StarRating } from "./StarRating";
+import { useI18n } from "../i18n";
 
 interface PhotoGridProps {
   photos: FaceEntry[];
@@ -26,7 +27,7 @@ const PhotoCard: React.FC<{
   onOpen: () => void;
   hideBbox?: boolean;
   meta?: PhotoMeta;
-}> = ({ photo, isSelected, onToggleSelect, onOpen, hideBbox, meta }) => {
+}> = React.memo(({ photo, isSelected, onToggleSelect, onOpen, hideBbox, meta }) => {
   const imgRef = useRef<HTMLImageElement>(null);
   const containerRef = useRef<HTMLDivElement>(null);
   const [fullImage, setFullImage] = useState<string | null>(null);
@@ -192,7 +193,7 @@ const PhotoCard: React.FC<{
       </div>
     </div>
   );
-};
+});
 
 /* ------------------------------------------------------------------ */
 /* Main grid                                                           */
@@ -207,6 +208,7 @@ export const PhotoGrid: React.FC<PhotoGridProps> = ({
   hideBbox,
   metaMap,
 }) => {
+  const { t } = useI18n();
   const [viewerIndex, setViewerIndex] = useState<number | null>(null);
 
   if (photos.length === 0) {
@@ -247,7 +249,6 @@ export const PhotoGrid: React.FC<PhotoGridProps> = ({
         {/* Select All / Deselect All */}
         {photos.length > 0 && (() => {
           const allSelected = photos.every((p) => selectedIds.has(p.face_id));
-          const someSelected = photos.some((p) => selectedIds.has(p.face_id));
           return (
             <button
               onClick={allSelected ? onDeselectAll : onSelectAll}
@@ -260,7 +261,7 @@ export const PhotoGrid: React.FC<PhotoGridProps> = ({
                   <path strokeLinecap="round" strokeLinejoin="round" d="M3.75 3.75v4.5m0-4.5h4.5m-4.5 0L9 9M3.75 20.25v-4.5m0 4.5h4.5m-4.5 0L9 15M20.25 3.75h-4.5m4.5 0v4.5m0-4.5L15 9m5.25 11.25h-4.5m4.5 0v-4.5m0 4.5L15 15" />
                 )}
               </svg>
-              {allSelected ? "Deselect All" : someSelected ? "Select All" : "Select All"}
+              {allSelected ? t("photogrid_deselect_all") : t("photogrid_select_all")}
             </button>
           );
         })()}

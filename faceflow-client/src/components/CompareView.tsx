@@ -2,12 +2,15 @@ import React, { useEffect, useState, useRef, useCallback } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import type { FaceEntry } from "../types";
 
+import { useI18n } from "../i18n";
+
 interface CompareViewProps {
   photos: FaceEntry[];
   onClose: () => void;
 }
 
 export const CompareView: React.FC<CompareViewProps> = ({ photos, onClose }) => {
+  const { t } = useI18n();
   const [images, setImages] = useState<Map<string, string>>(new Map());
   const [zoom, setZoom] = useState(1);
   const [pan, setPan] = useState({ x: 0, y: 0 });
@@ -93,7 +96,7 @@ export const CompareView: React.FC<CompareViewProps> = ({ photos, onClose }) => 
       <div className="flex items-center justify-between border-b border-edge px-5 py-2.5">
         <div className="flex items-center gap-4">
           <h2 className="text-[13px] font-semibold text-fg">
-            Compare {displayPhotos.length} Photos
+            {t("toolbar_compare")} {displayPhotos.length}
           </h2>
           <div className="flex items-center gap-2">
             <span className="text-[11px] tabular-nums text-fg-muted">{Math.round(zoom * 100)}%</span>
@@ -136,7 +139,7 @@ export const CompareView: React.FC<CompareViewProps> = ({ photos, onClose }) => 
           const filename = photo.file_path.split("/").pop() || "";
           return (
             <div key={photo.face_id} className="relative flex flex-col overflow-hidden">
-              <div className="flex-1 overflow-hidden bg-black">
+              <div className="flex-1 overflow-hidden bg-surface-alt dark:bg-black">
                 {imgData ? (
                   <img
                     src={`data:image/jpeg;base64,${imgData}`}

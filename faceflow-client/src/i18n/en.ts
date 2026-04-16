@@ -123,6 +123,20 @@ export const en = {
   // Sidebar
   sidebar_persons: "Persons",
 
+  // Export
+  export_destination: "Destination Folder",
+  export_choose_folder: "Choose a folder...",
+  export_browse: "Browse",
+  export_rename_template: "Rename Template",
+  export_max_dimension: "Max Dimension (px)",
+  export_jpeg_quality: "JPEG Quality",
+  export_watermark: "Watermark Text",
+  export_by_faces: "Export by faces",
+  export_by_faces_desc: "Creates subfolders for each detected person (Person 1, Person 2, ...).",
+  export_exporting: "Exporting...",
+  photogrid_select_all: "Select All",
+  photogrid_deselect_all: "Deselect All",
+
   // Help
   help: "Help",
   keyboard_shortcuts: "Keyboard Shortcuts",
@@ -225,6 +239,7 @@ export const en = {
   help_shortcuts_yellow: "Yellow",
   help_shortcuts_green: "Green",
   help_shortcuts_blue: "Blue",
+  help_shortcuts_purple: "Purple",
   help_shortcuts_selection: "Selection",
   help_shortcuts_select_all: "Select all in current view",
   help_shortcuts_deselect: "Deselect all",

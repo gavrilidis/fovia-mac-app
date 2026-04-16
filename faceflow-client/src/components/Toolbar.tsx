@@ -161,7 +161,7 @@ export const Toolbar: React.FC<ToolbarProps> = ({
           <span className="text-[13px] font-semibold tracking-tight text-fg">FaceFlow</span>
           <div className="h-3 w-px bg-edge" />
           <span className="text-[11px] tabular-nums text-fg-muted">
-            {groupCount} {groupCount === 1 ? "person" : "people"}
+            {groupCount} {groupCount === 1 ? t("person") : t("toolbar_people").replace("{count}", "").trim()}
           </span>
         </div>
 
@@ -204,12 +204,12 @@ export const Toolbar: React.FC<ToolbarProps> = ({
             }`}
             title="Filter by minimum rating"
           >
-            <option value={0}>Rating</option>
-            <option value={1}>1+ Stars</option>
-            <option value={2}>2+ Stars</option>
-            <option value={3}>3+ Stars</option>
-            <option value={4}>4+ Stars</option>
-            <option value={5}>5 Stars</option>
+            <option value={0}>{t("toolbar_filter_rating")}</option>
+            <option value={1}>{t("toolbar_stars").replace("{n}", "1")}</option>
+            <option value={2}>{t("toolbar_stars").replace("{n}", "2")}</option>
+            <option value={3}>{t("toolbar_stars").replace("{n}", "3")}</option>
+            <option value={4}>{t("toolbar_stars").replace("{n}", "4")}</option>
+            <option value={5}>{t("toolbar_5_stars")}</option>
           </select>
 
           <select
@@ -222,10 +222,10 @@ export const Toolbar: React.FC<ToolbarProps> = ({
             }`}
             title="Filter by pick status"
           >
-            <option value="all">Status</option>
-            <option value="pick">Picked</option>
-            <option value="reject">Rejected</option>
-            <option value="none">Unflagged</option>
+            <option value="all">{t("toolbar_filter_status")}</option>
+            <option value="pick">{t("toolbar_picked")}</option>
+            <option value="reject">{t("toolbar_rejected")}</option>
+            <option value="none">{t("toolbar_unflagged")}</option>
           </select>
 
           <select
@@ -238,12 +238,12 @@ export const Toolbar: React.FC<ToolbarProps> = ({
             }`}
             title="Filter by color label"
           >
-            <option value="all">Label</option>
-            <option value="red">Red</option>
-            <option value="yellow">Yellow</option>
-            <option value="green">Green</option>
-            <option value="blue">Blue</option>
-            <option value="purple">Purple</option>
+            <option value="all">{t("toolbar_filter_label")}</option>
+            <option value="red">{t("help_shortcuts_red")}</option>
+            <option value="yellow">{t("help_shortcuts_yellow")}</option>
+            <option value="green">{t("help_shortcuts_green")}</option>
+            <option value="blue">{t("help_shortcuts_blue")}</option>
+            <option value="purple">{t("help_shortcuts_purple")}</option>
           </select>
 
           <select
@@ -256,10 +256,10 @@ export const Toolbar: React.FC<ToolbarProps> = ({
             }`}
             title="Filter by quality"
           >
-            <option value="all">Quality</option>
-            <option value="sharp">Sharp only</option>
-            <option value="eyes_open">Eyes open</option>
-            <option value="no_defects">No defects</option>
+            <option value="all">{t("toolbar_filter_quality")}</option>
+            <option value="sharp">{t("toolbar_sharp")}</option>
+            <option value="eyes_open">{t("toolbar_eyes_open")}</option>
+            <option value="no_defects">{t("toolbar_no_defects")}</option>
           </select>
 
           {hasActiveFilters && (
@@ -328,10 +328,28 @@ export const Toolbar: React.FC<ToolbarProps> = ({
             </svg>
           </IconBtn>
 
+          {aiConfigured && (
+            <button
+              onClick={onAiAnalyze}
+              disabled={aiAnalyzing}
+              title={hasSelection ? t("ai_analyze_selected") : t("ai_analyze")}
+              className={`flex h-7 items-center gap-1.5 whitespace-nowrap rounded-md border px-2.5 text-[11px] font-medium transition-all duration-150 ${
+                aiAnalyzing
+                  ? "border-accent/30 bg-accent/5 text-accent/60 cursor-wait"
+                  : "border-purple-500/30 text-purple-400 hover:border-purple-500/50 hover:bg-purple-500/10"
+              }`}
+            >
+              <svg className={`h-3.5 w-3.5 ${aiAnalyzing ? "animate-spin" : ""}`} fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                <path strokeLinecap="round" strokeLinejoin="round" d="M9.813 15.904L9 18.75l-.813-2.846a4.5 4.5 0 00-3.09-3.09L2.25 12l2.846-.813a4.5 4.5 0 003.09-3.09L9 5.25l.813 2.846a4.5 4.5 0 003.09 3.09L15.75 12l-2.846.813a4.5 4.5 0 00-3.09 3.09zM18.259 8.715L18 9.75l-.259-1.035a3.375 3.375 0 00-2.455-2.456L14.25 6l1.036-.259a3.375 3.375 0 002.455-2.456L18 2.25l.259 1.035a3.375 3.375 0 002.455 2.456L21.75 6l-1.036.259a3.375 3.375 0 00-2.455 2.456z" />
+              </svg>
+              {t("ai_analyze")}
+            </button>
+          )}
+
           <button
             onClick={onReset}
-            title="New Scan"
-            className="ml-1 flex h-7 items-center gap-1.5 rounded-md border border-edge px-2.5 text-[11px] font-medium text-fg-muted transition-all duration-150 hover:border-edge-light hover:bg-surface-elevated hover:text-fg"
+            title={t("toolbar_new_scan")}
+            className="ml-1 flex h-7 items-center gap-1.5 whitespace-nowrap rounded-md border border-edge px-2.5 text-[11px] font-medium text-fg-muted transition-all duration-150 hover:border-edge-light hover:bg-surface-elevated hover:text-fg"
           >
             <svg className="h-3 w-3" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
               <path strokeLinecap="round" strokeLinejoin="round" d="M16.023 9.348h4.992v-.001M2.985 19.644v-4.992m0 0h4.992m-4.993 0l3.181 3.183a8.25 8.25 0 0013.803-3.7M4.031 9.865a8.25 8.25 0 0113.803-3.7l3.181 3.182" />
@@ -346,7 +364,7 @@ export const Toolbar: React.FC<ToolbarProps> = ({
         <div className="flex h-10 items-center gap-3 border-t border-edge/40 px-4">
           {/* Selection count */}
           <span className="flex-shrink-0 text-[11px] font-medium tabular-nums text-accent">
-            {selectedPhotoCount} selected
+            {selectedPhotoCount} {t("toolbar_selected").replace("{count}", "").trim()}
           </span>
 
           <div className="h-3.5 w-px bg-edge" />
@@ -414,7 +432,7 @@ export const Toolbar: React.FC<ToolbarProps> = ({
               <svg className="h-3.5 w-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
                 <path strokeLinecap="round" strokeLinejoin="round" d="M7.5 21L3 16.5m0 0L7.5 12M3 16.5h13.5m0-13.5L21 7.5m0 0L16.5 12M21 7.5H7.5" />
               </svg>
-              Move to...
+              {t("move_to")}
             </button>
             {showMoveMenu && (
               <div className="absolute left-0 top-full z-50 mt-1 w-52 rounded-lg border border-edge bg-surface shadow-xl">
@@ -468,7 +486,7 @@ export const Toolbar: React.FC<ToolbarProps> = ({
                     <svg className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
                       <path strokeLinecap="round" strokeLinejoin="round" d="M12 4.5v15m7.5-7.5h-15" />
                     </svg>
-                    New Person
+                    {t("toolbar_new_person")}
                   </button>
                 </div>
               </div>
@@ -488,24 +506,6 @@ export const Toolbar: React.FC<ToolbarProps> = ({
               </IconBtn>
             )}
 
-            {aiConfigured && (
-              <button
-                onClick={onAiAnalyze}
-                disabled={aiAnalyzing}
-                title={t("ai_analyze_selected")}
-                className={`flex h-7 items-center gap-1.5 rounded-md border px-2.5 text-[11px] font-medium transition-all duration-150 ${
-                  aiAnalyzing
-                    ? "border-accent/30 bg-accent/5 text-accent/60 cursor-wait"
-                    : "border-purple-500/30 text-purple-400 hover:border-purple-500/50 hover:bg-purple-500/10"
-                }`}
-              >
-                <svg className={`h-3.5 w-3.5 ${aiAnalyzing ? "animate-spin" : ""}`} fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
-                  <path strokeLinecap="round" strokeLinejoin="round" d="M9.813 15.904L9 18.75l-.813-2.846a4.5 4.5 0 00-3.09-3.09L2.25 12l2.846-.813a4.5 4.5 0 003.09-3.09L9 5.25l.813 2.846a4.5 4.5 0 003.09 3.09L15.75 12l-2.846.813a4.5 4.5 0 00-3.09 3.09zM18.259 8.715L18 9.75l-.259-1.035a3.375 3.375 0 00-2.455-2.456L14.25 6l1.036-.259a3.375 3.375 0 002.455-2.456L18 2.25l.259 1.035a3.375 3.375 0 002.455 2.456L21.75 6l-1.036.259a3.375 3.375 0 00-2.455 2.456z" />
-                </svg>
-                {t("ai_analyze")}
-              </button>
-            )}
-
             <IconBtn onClick={onRevealPhotos} title={t("toolbar_reveal")}>
               <svg className="h-[15px] w-[15px]" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.5}>
                 <path strokeLinecap="round" strokeLinejoin="round" d="M3.75 9.776c.112-.017.227-.026.344-.026h15.812c.117 0 .232.009.344.026m-16.5 0a2.25 2.25 0 00-1.883 2.542l.857 6a2.25 2.25 0 002.227 1.932H19.05a2.25 2.25 0 002.227-1.932l.857-6a2.25 2.25 0 00-1.883-2.542m-16.5 0V6A2.25 2.25 0 016 3.75h3.879a1.5 1.5 0 011.06.44l2.122 2.12a1.5 1.5 0 001.06.44H18A2.25 2.25 0 0120.25 9v.776" />
@@ -520,7 +520,7 @@ export const Toolbar: React.FC<ToolbarProps> = ({
               <svg className="h-3 w-3" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2.5}>
                 <path strokeLinecap="round" strokeLinejoin="round" d="M3 16.5v2.25A2.25 2.25 0 005.25 21h13.5A2.25 2.25 0 0021 18.75V16.5m-13.5-9L12 3m0 0l4.5 4.5M12 3v13.5" />
               </svg>
-              Export
+              {t("toolbar_export")}
             </button>
           </div>
         </div>

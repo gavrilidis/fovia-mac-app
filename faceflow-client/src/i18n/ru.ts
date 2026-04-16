@@ -99,7 +99,7 @@ export const ru: Record<TranslationKey, string> = {
   toolbar_people: "{count} человек",
   toolbar_person: "{count} человек",
   toolbar_selected: "{count} выбрано",
-  toolbar_new_scan: "Новое сканирование",
+  toolbar_new_scan: "Новый скан",
   toolbar_filter_rating: "Рейтинг",
   toolbar_filter_status: "Статус",
   toolbar_filter_label: "Метка",
@@ -124,6 +124,20 @@ export const ru: Record<TranslationKey, string> = {
 
   // Sidebar
   sidebar_persons: "Персоны",
+
+  // Export
+  export_destination: "Папка назначения",
+  export_choose_folder: "Выберите папку...",
+  export_browse: "Обзор",
+  export_rename_template: "Шаблон переименования",
+  export_max_dimension: "Макс. размер (px)",
+  export_jpeg_quality: "Качество JPEG",
+  export_watermark: "Текст водяного знака",
+  export_by_faces: "Экспорт по лицам",
+  export_by_faces_desc: "Создает подпапки для каждого человека (Персона 1, Персона 2, ...).",
+  export_exporting: "Экспорт...",
+  photogrid_select_all: "Выбрать все",
+  photogrid_deselect_all: "Снять выделение",
 
   // Help
   help: "Справка",
@@ -227,6 +241,7 @@ export const ru: Record<TranslationKey, string> = {
   help_shortcuts_yellow: "Желтая",
   help_shortcuts_green: "Зеленая",
   help_shortcuts_blue: "Синяя",
+  help_shortcuts_purple: "Пурпурный",
   help_shortcuts_selection: "Выделение",
   help_shortcuts_select_all: "Выделить все в текущем виде",
   help_shortcuts_deselect: "Снять выделение",

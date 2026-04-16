@@ -226,10 +226,10 @@ export const DropZone: React.FC<DropZoneProps> = ({ onFolderSelected }) => {
                   value={aiApiKey}
                   onChange={(e) => { setAiApiKeyState(e.target.value); saveAiApiKey(e.target.value); }}
                   placeholder={t("ai_api_key_placeholder")}
-                  className="w-full rounded-lg border border-edge/40 bg-surface/60 px-3 py-2 text-[12px] text-fg placeholder:text-fg-muted/40 outline-none transition-all focus:border-accent/50 focus:ring-1 focus:ring-accent/20"
+                  className="w-full rounded-lg border border-edge/40 bg-surface/60 px-3 pr-24 py-2 text-[12px] text-fg placeholder:text-fg-muted/40 outline-none transition-all focus:border-accent/50 focus:ring-1 focus:ring-accent/20"
                 />
                 {aiApiKey && (
-                  <span className="absolute right-3 top-1/2 -translate-y-1/2 text-[10px] font-medium text-positive">
+                  <span className="absolute right-3 top-1/2 -translate-y-1/2 text-[10px] font-medium text-positive whitespace-nowrap">
                     {t("ai_connected")}
                   </span>
                 )}

@@ -1,6 +1,7 @@
 import React, { useState, useCallback } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import { open } from "@tauri-apps/plugin-dialog";
+import { useI18n } from "../i18n";
 import type { ExportConfig, FaceGroup, FaceGroupExport } from "../types";
 
 interface ExportDialogProps {
@@ -10,6 +11,7 @@ interface ExportDialogProps {
 }
 
 export const ExportDialog: React.FC<ExportDialogProps> = ({ filePaths, groups, onClose }) => {
+  const { t } = useI18n();
   const [destination, setDestination] = useState("");
   const [renameTemplate, setRenameTemplate] = useState("");
   const [maxDimension, setMaxDimension] = useState<string>("");
@@ -67,7 +69,7 @@ export const ExportDialog: React.FC<ExportDialogProps> = ({ filePaths, groups, o
         {/* Header */}
         <div className="mb-5 flex items-center justify-between">
           <h2 className="text-[15px] font-semibold text-fg">
-            Export {filePaths.length} Photo{filePaths.length !== 1 ? "s" : ""}
+            {t("toolbar_export")} {filePaths.length} {t("photos")}
           </h2>
           <button
             onClick={onClose}
@@ -82,27 +84,27 @@ export const ExportDialog: React.FC<ExportDialogProps> = ({ filePaths, groups, o
 
         {/* Destination */}
         <div className="mb-4">
-          <label className="mb-1.5 block text-[11px] font-medium text-fg-muted">Destination Folder</label>
+          <label className="mb-1.5 block text-[11px] font-medium text-fg-muted">{t("export_destination")}</label>
           <div className="flex gap-2">
             <input
               type="text"
               value={destination}
               onChange={(e) => setDestination(e.target.value)}
-              placeholder="Choose a folder..."
+              placeholder={t("export_choose_folder")}
               className="flex-1 rounded-lg border border-edge bg-surface px-3 py-1.5 text-[12px] text-fg placeholder:text-fg-muted/40 focus:border-accent focus:outline-none"
             />
             <button
               onClick={handleBrowse}
               className="rounded-lg border border-edge px-3 py-1.5 text-[12px] text-fg-muted transition-colors duration-150 hover:bg-surface-elevated hover:text-fg"
             >
-              Browse
+              {t("export_browse")}
             </button>
           </div>
         </div>
 
         {/* Rename template */}
         <div className="mb-4">
-          <label className="mb-1.5 block text-[11px] font-medium text-fg-muted">Rename Template</label>
+          <label className="mb-1.5 block text-[11px] font-medium text-fg-muted">{t("export_rename_template")}</label>
           <input
             type="text"
             value={renameTemplate}
@@ -118,7 +120,7 @@ export const ExportDialog: React.FC<ExportDialogProps> = ({ filePaths, groups, o
         {/* Resize + Quality */}
         <div className="mb-4 flex gap-4">
           <div className="flex-1">
-            <label className="mb-1.5 block text-[11px] font-medium text-fg-muted">Max Dimension (px)</label>
+            <label className="mb-1.5 block text-[11px] font-medium text-fg-muted">{t("export_max_dimension")}</label>
             <input
               type="number"
               value={maxDimension}
@@ -128,7 +130,7 @@ export const ExportDialog: React.FC<ExportDialogProps> = ({ filePaths, groups, o
             />
           </div>
           <div className="flex-1">
-            <label className="mb-1.5 block text-[11px] font-medium text-fg-muted">JPEG Quality</label>
+            <label className="mb-1.5 block text-[11px] font-medium text-fg-muted">{t("export_jpeg_quality")}</label>
             <input
               type="number"
               min="10"
@@ -142,7 +144,7 @@ export const ExportDialog: React.FC<ExportDialogProps> = ({ filePaths, groups, o
 
         {/* Watermark */}
         <div className="mb-4">
-          <label className="mb-1.5 block text-[11px] font-medium text-fg-muted">Watermark Text</label>
+          <label className="mb-1.5 block text-[11px] font-medium text-fg-muted">{t("export_watermark")}</label>
           <input
             type="text"
             value={watermarkText}
@@ -165,10 +167,10 @@ export const ExportDialog: React.FC<ExportDialogProps> = ({ filePaths, groups, o
               aria-label="Export by faces"
               className="h-3.5 w-3.5 rounded border-edge accent-accent"
             />
-            <span className="text-[12px] text-fg">Export by faces</span>
+            <span className="text-[12px] text-fg">{t("export_by_faces")}</span>
           </label>
           <p className="mt-1 ml-5.5 text-[11px] text-fg-muted/50">
-            Creates subfolders for each detected person (Person 1, Person 2, ...).
+            {t("export_by_faces_desc")}
           </p>
         </div>
 
@@ -187,14 +189,14 @@ export const ExportDialog: React.FC<ExportDialogProps> = ({ filePaths, groups, o
             onClick={onClose}
             className="rounded-lg border border-edge px-4 py-2 text-[12px] font-medium text-fg-muted transition-all duration-150 hover:bg-surface-elevated hover:text-fg"
           >
-            Cancel
+            {t("cancel")}
           </button>
           <button
             onClick={handleExport}
             disabled={!destination || exporting}
             className="rounded-lg bg-accent px-4 py-2 text-[12px] font-medium text-white transition-all duration-150 hover:bg-accent-hover active:scale-[0.97] disabled:opacity-50"
           >
-            {exporting ? "Exporting..." : "Export"}
+            {exporting ? t("export_exporting") : t("toolbar_export")}
           </button>
         </div>
       </div>
