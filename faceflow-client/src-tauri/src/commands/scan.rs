@@ -452,6 +452,18 @@ pub async fn download_models(app: AppHandle) -> Result<(), String> {
 
 const EXIFTOOL_VERSION: &str = "13.55";
 
+/// Candidate download URLs for exiftool, tried in order.
+fn exiftool_download_urls() -> Vec<String> {
+    vec![
+        // Primary: exiftool.org (only hosts the latest version, may 404 for older)
+        format!("https://exiftool.org/Image-ExifTool-{EXIFTOOL_VERSION}.tar.gz"),
+        // Fallback: SourceForge (permanent archive of all versions)
+        format!("https://sourceforge.net/projects/exiftool/files/Image-ExifTool-{EXIFTOOL_VERSION}.tar.gz/download"),
+        // Fallback 2: GitHub mirror
+        format!("https://github.com/exiftool/exiftool/archive/refs/tags/{EXIFTOOL_VERSION}.tar.gz"),
+    ]
+}
+
 /// Download and install exiftool (Perl distribution) into app data directory.
 #[tauri::command]
 pub async fn download_exiftool(app: AppHandle) -> Result<(), String> {
@@ -464,9 +476,6 @@ pub async fn download_exiftool(app: AppHandle) -> Result<(), String> {
         return Ok(());
     }
 
-    let url = format!("https://exiftool.org/Image-ExifTool-{EXIFTOOL_VERSION}.tar.gz");
-    log::info!("Downloading exiftool from {url}");
-
     app.emit(
         "model-download-progress",
         DownloadProgress {
@@ -477,21 +486,51 @@ pub async fn download_exiftool(app: AppHandle) -> Result<(), String> {
     )
     .ok();
 
-    let response = reqwest::get(&url)
-        .await
-        .map_err(|e| format!("Failed to download exiftool: {e}"))?;
+    // Try each URL until one succeeds
+    let urls = exiftool_download_urls();
+    let mut last_err = String::from("No download URLs configured");
+    let mut data = None;
 
-    if !response.status().is_success() {
-        return Err(format!(
-            "exiftool download failed with status: {}",
-            response.status()
-        ));
+    let client = reqwest::Client::builder()
+        .redirect(reqwest::redirect::Policy::limited(10))
+        .timeout(std::time::Duration::from_secs(120))
+        .build()
+        .map_err(|e| format!("Failed to create HTTP client: {e}"))?;
+
+    for url in &urls {
+        log::info!("Trying exiftool download from {url}");
+        match client.get(url).send().await {
+            Ok(response) if response.status().is_success() => match response.bytes().await {
+                Ok(bytes) => {
+                    log::info!(
+                        "exiftool downloaded successfully from {url} ({} bytes)",
+                        bytes.len()
+                    );
+                    data = Some(bytes);
+                    break;
+                }
+                Err(e) => {
+                    last_err = format!("Failed to read response from {url}: {e}");
+                    log::warn!("{last_err}");
+                }
+            },
+            Ok(response) => {
+                last_err = format!(
+                    "exiftool download from {url} failed with status: {}",
+                    response.status()
+                );
+                log::warn!("{last_err}");
+            }
+            Err(e) => {
+                last_err = format!("Failed to connect to {url}: {e}");
+                log::warn!("{last_err}");
+            }
+        }
     }
 
-    let data = response
-        .bytes()
-        .await
-        .map_err(|e| format!("Failed to read exiftool download: {e}"))?;
+    let data = data.ok_or(format!(
+        "All exiftool download sources failed. Last error: {last_err}"
+    ))?;
 
     app.emit(
         "model-download-progress",
@@ -511,13 +550,25 @@ pub async fn download_exiftool(app: AppHandle) -> Result<(), String> {
         .map_err(|e| format!("Failed to extract exiftool: {e}"))?;
 
     // Verify the exiftool script exists and is executable
-    let exiftool_script = tools_dir
-        .join(format!("Image-ExifTool-{EXIFTOOL_VERSION}"))
-        .join("exiftool");
-
-    if !exiftool_script.exists() {
-        return Err("exiftool script not found after extraction".to_string());
-    }
+    // exiftool.org archives use Image-ExifTool-{VERSION}/ directory
+    // GitHub archives use exiftool-{VERSION}/ directory
+    let exiftool_script = {
+        let primary = tools_dir
+            .join(format!("Image-ExifTool-{EXIFTOOL_VERSION}"))
+            .join("exiftool");
+        if primary.exists() {
+            primary
+        } else {
+            let fallback = tools_dir
+                .join(format!("exiftool-{EXIFTOOL_VERSION}"))
+                .join("exiftool");
+            if fallback.exists() {
+                fallback
+            } else {
+                return Err("exiftool script not found after extraction".to_string());
+            }
+        }
+    };
 
     // Make executable
     #[cfg(unix)]

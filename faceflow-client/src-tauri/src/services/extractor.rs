@@ -141,11 +141,12 @@ pub fn find_bundled_exiftool(tools_dir: &Path) -> Option<PathBuf> {
     if !tools_dir.exists() {
         return None;
     }
-    // Look for Image-ExifTool-*/exiftool inside tools_dir
+    // Look for Image-ExifTool-*/exiftool or exiftool-*/exiftool inside tools_dir
     if let Ok(entries) = std::fs::read_dir(tools_dir) {
         for entry in entries.flatten() {
             let name = entry.file_name();
-            if name.to_string_lossy().starts_with("Image-ExifTool-") {
+            let name_str = name.to_string_lossy();
+            if name_str.starts_with("Image-ExifTool-") || name_str.starts_with("exiftool-") {
                 let script = entry.path().join("exiftool");
                 if script.is_file() {
                     return Some(script);

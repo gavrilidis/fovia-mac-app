@@ -4,9 +4,10 @@ interface HelpDialogProps {
   onClose: () => void;
 }
 
-type Tab = "workflow" | "shortcuts" | "sorting" | "privacy";
+type Tab = "install" | "workflow" | "shortcuts" | "sorting" | "privacy";
 
 const TABS: { id: Tab; label: string }[] = [
+  { id: "install", label: "Installation" },
   { id: "workflow", label: "Workflow" },
   { id: "sorting", label: "Photo Sorting" },
   { id: "shortcuts", label: "Shortcuts" },
@@ -72,6 +73,7 @@ export const HelpDialog: React.FC<HelpDialogProps> = ({ onClose }) => {
 
         {/* Content */}
         <div className="flex-1 overflow-y-auto px-5 py-4">
+          {activeTab === "install" && <InstallTab />}
           {activeTab === "workflow" && <WorkflowTab />}
           {activeTab === "sorting" && <SortingTab />}
           {activeTab === "shortcuts" && <ShortcutsTab />}
@@ -90,6 +92,76 @@ const SectionTitle: React.FC<{ children: React.ReactNode }> = ({ children }) => 
 
 const Para: React.FC<{ children: React.ReactNode }> = ({ children }) => (
   <p className="mb-3 text-[12px] leading-relaxed text-fg-muted">{children}</p>
+);
+
+const CodeBlock: React.FC<{ children: string }> = ({ children }) => (
+  <div className="mb-3 rounded-lg bg-surface-elevated px-3 py-2">
+    <code className="select-all text-[11px] text-accent">{children}</code>
+  </div>
+);
+
+const InstallTab = () => (
+  <div className="space-y-4">
+    <SectionTitle>Installing FaceFlow</SectionTitle>
+    <Para>
+      Open the downloaded DMG file and drag FaceFlow to the Applications folder.
+      On first launch, macOS may block the app because it is not signed with an
+      Apple Developer certificate. There are two ways to allow it to run.
+    </Para>
+
+    <SectionTitle>Option 1: System Settings (recommended)</SectionTitle>
+    <div className="space-y-2">
+      <Step number={1} title="Try to open FaceFlow">
+        Double-click the app in Applications. macOS will show a message that the app
+        cannot be opened because it is from an unidentified developer.
+      </Step>
+      <Step number={2} title="Open System Settings">
+        Go to System Settings (Apple menu) &gt; Privacy &amp; Security.
+      </Step>
+      <Step number={3} title="Allow the app">
+        Scroll down to the Security section. You will see a message:
+        "FaceFlow was blocked from use because it is not from an identified developer."
+        Click "Open Anyway" and confirm.
+      </Step>
+      <Step number={4} title="Launch again">
+        Open FaceFlow again. This time macOS will ask one more time — click Open.
+        After that the app will open normally every time.
+      </Step>
+    </div>
+
+    <SectionTitle>Option 2: Terminal command</SectionTitle>
+    <Para>
+      Open Terminal (Applications &gt; Utilities &gt; Terminal) and run:
+    </Para>
+    <CodeBlock>xattr -cr "/Applications/FaceFlow.app"</CodeBlock>
+    <Para>
+      This removes the macOS quarantine flag from FaceFlow. After running this command,
+      the app will open without any warnings. If you installed FaceFlow to a different
+      location, replace the path accordingly.
+    </Para>
+
+    <SectionTitle>First Launch</SectionTitle>
+    <Para>
+      On the first launch, FaceFlow will ask for a license key. Enter the serial number
+      you received. An internet connection is required for activation (one-time only).
+    </Para>
+    <Para>
+      After activation, FaceFlow will download two AI models (~183 MB total) for local
+      face detection. This happens once, and after that the app works fully offline.
+    </Para>
+
+    <SectionTitle>System Requirements</SectionTitle>
+    <ul className="mb-3 list-inside list-disc space-y-1 text-[12px] text-fg-muted">
+      <li>macOS 11.0 (Big Sur) or later</li>
+      <li>Apple Silicon (M1/M2/M3/M4) or Intel Mac</li>
+      <li>At least 500 MB of free disk space</li>
+      <li>Internet for first-time activation and model download</li>
+    </ul>
+    <Para>
+      No additional software (Homebrew, Python, Xcode, etc.) needs to be installed.
+      FaceFlow is fully self-contained.
+    </Para>
+  </div>
 );
 
 const WorkflowTab = () => (
