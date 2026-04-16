@@ -44,6 +44,7 @@ export const GalleryView: React.FC<GalleryViewProps> = ({ groups, noFaceFiles, o
   // Search & AI
   const [searchQuery, setSearchQuery] = React.useState("");
   const [aiAnalyzing, setAiAnalyzing] = React.useState(false);
+  const [aiStatus, setAiStatus] = React.useState<string | null>(null);
   const [aiTags, setAiTags] = React.useState<Map<string, string[]>>(() => {
     // Restore cached AI tags from localStorage
     try {
@@ -269,8 +270,15 @@ export const GalleryView: React.FC<GalleryViewProps> = ({ groups, noFaceFiles, o
 
   // AI analyze selected photos
   const handleAiAnalyze = useCallback(async () => {
-    if (!isAiConfigured()) return;
+    if (!isAiConfigured()) {
+      setAiStatus("API key not configured — open Settings to add one");
+      setTimeout(() => setAiStatus(null), 4000);
+      return;
+    }
     setAiAnalyzing(true);
+    setAiStatus(null);
+    let successCount = 0;
+    let failCount = 0;
     try {
       // If no photos selected, analyze all photos in current view
       const entriesToAnalyze = selectedPhotoIds.size > 0
@@ -279,11 +287,21 @@ export const GalleryView: React.FC<GalleryViewProps> = ({ groups, noFaceFiles, o
             .filter((f): f is FaceEntry => f !== undefined)
         : currentPhotos;
 
-      for (const entry of entriesToAnalyze) {
+      if (entriesToAnalyze.length === 0) {
+        setAiStatus("No photos to analyze");
+        setTimeout(() => setAiStatus(null), 3000);
+        setAiAnalyzing(false);
+        return;
+      }
+
+      for (let i = 0; i < entriesToAnalyze.length; i++) {
+        const entry = entriesToAnalyze[i];
+        setAiStatus(`Analyzing ${i + 1} / ${entriesToAnalyze.length}...`);
         try {
           // Read photo as base64 via Tauri
           const base64 = await invoke<string>("read_photo_base64", { filePath: entry.file_path });
           const result = await analyzePhoto(base64);
+          successCount++;
           setAiTags((prev) => {
             const next = new Map(prev);
             next.set(entry.file_path, result.tags);
@@ -293,12 +311,24 @@ export const GalleryView: React.FC<GalleryViewProps> = ({ groups, noFaceFiles, o
             } catch { /* quota exceeded, ignore */ }
             return next;
           });
-        } catch {
-          // Skip failed photos
+        } catch (err) {
+          failCount++;
+          console.error("AI analyze failed for", entry.file_path, err);
         }
       }
+    } catch (err) {
+      console.error("AI analyze error:", err);
+      setAiStatus(`Error: ${err instanceof Error ? err.message : String(err)}`);
+      setTimeout(() => setAiStatus(null), 5000);
     } finally {
       setAiAnalyzing(false);
+      if (successCount > 0 || failCount > 0) {
+        const msg = failCount > 0
+          ? `Done: ${successCount} tagged, ${failCount} failed`
+          : `Done: ${successCount} photos tagged`;
+        setAiStatus(msg);
+        setTimeout(() => setAiStatus(null), 4000);
+      }
     }
   }, [selectedPhotoIds, allFacesMap, currentPhotos]);
 
@@ -579,6 +609,18 @@ export const GalleryView: React.FC<GalleryViewProps> = ({ groups, noFaceFiles, o
       )}
       {showSettings && (
         <SettingsPanel onClose={() => setShowSettings(false)} />
+      )}
+
+      {/* AI status toast */}
+      {aiStatus && (
+        <div className="fixed bottom-6 left-1/2 z-[200] -translate-x-1/2 rounded-lg border border-edge bg-surface px-4 py-2.5 shadow-xl">
+          <div className="flex items-center gap-2.5">
+            {aiAnalyzing && (
+              <div className="h-3.5 w-3.5 animate-spin rounded-full border-2 border-accent/30 border-t-accent" />
+            )}
+            <span className="text-[12px] text-fg">{aiStatus}</span>
+          </div>
+        </div>
       )}
     </div>
   );

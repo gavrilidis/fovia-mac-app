@@ -91,7 +91,7 @@ export const CompareView: React.FC<CompareViewProps> = ({ photos, onClose }) => 
   };
 
   return (
-    <div className="fixed inset-0 z-[90] flex flex-col bg-surface">
+    <div className="fixed inset-0 z-[90] flex flex-col bg-surface pt-[38px]">
       {/* Header */}
       <div className="flex items-center justify-between border-b border-edge px-5 py-2.5">
         <div className="flex items-center gap-4">

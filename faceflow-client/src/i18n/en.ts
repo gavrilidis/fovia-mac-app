@@ -261,6 +261,7 @@ export const en = {
   help_privacy_network_title: "Network Usage",
   help_privacy_network_desc: "FaceFlow connects to the internet only for: license activation verification, initial model download, and checking for app updates. All other operations are fully offline.",
   help_privacy_network_hint: "After the first setup, you can use FaceFlow without any internet connection. The app has a 30-day offline grace period for license verification.",
+  settings_apply: "Apply",
 } as const;
 
 export type TranslationKey = keyof typeof en;

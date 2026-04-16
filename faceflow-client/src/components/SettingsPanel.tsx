@@ -10,8 +10,28 @@ interface SettingsPanelProps {
 
 export const SettingsPanel: React.FC<SettingsPanelProps> = ({ onClose }) => {
   const { t, locale, setLocale, theme, setTheme, glassIntensity, setGlassIntensity } = useI18n();
-  const [aiProvider, setAiProviderState] = useState<AiProvider>(getAiProvider);
-  const [aiApiKey, setAiApiKeyState] = useState(getAiApiKey);
+
+  // Buffer all settings — only apply on "Apply"
+  const [draftTheme, setDraftTheme] = useState<Theme>(theme);
+  const [draftLocale, setDraftLocale] = useState<Locale>(locale);
+  const [draftGlass, setDraftGlass] = useState(glassIntensity);
+  const [draftProvider, setDraftProvider] = useState<AiProvider>(getAiProvider);
+  const [draftApiKey, setDraftApiKey] = useState(getAiApiKey);
+
+  const hasChanges =
+    draftTheme !== theme ||
+    draftLocale !== locale ||
+    draftGlass !== glassIntensity ||
+    draftProvider !== getAiProvider() ||
+    draftApiKey !== getAiApiKey();
+
+  const handleApply = () => {
+    setTheme(draftTheme);
+    setLocale(draftLocale);
+    setGlassIntensity(draftGlass);
+    saveAiProvider(draftProvider);
+    saveAiApiKey(draftApiKey);
+  };
 
   useEffect(() => {
     const handler = (e: KeyboardEvent) => {
@@ -40,9 +60,9 @@ export const SettingsPanel: React.FC<SettingsPanelProps> = ({ onClose }) => {
             {(["dark", "light", "system"] as Theme[]).map((opt) => (
               <button
                 key={opt}
-                onClick={() => setTheme(opt)}
+                onClick={() => setDraftTheme(opt)}
                 className={`flex-1 rounded-md px-3 py-1.5 text-[12px] font-medium transition-all ${
-                  theme === opt ? "bg-accent text-white shadow-sm" : "text-fg-muted hover:text-fg"
+                  draftTheme === opt ? "bg-accent text-white shadow-sm" : "text-fg-muted hover:text-fg"
                 }`}
               >
                 {t(`theme_${opt}` as "theme_dark" | "theme_light" | "theme_system")}
@@ -58,9 +78,9 @@ export const SettingsPanel: React.FC<SettingsPanelProps> = ({ onClose }) => {
             {(["en", "ru"] as Locale[]).map((opt) => (
               <button
                 key={opt}
-                onClick={() => setLocale(opt)}
+                onClick={() => setDraftLocale(opt)}
                 className={`flex-1 rounded-md px-3 py-1.5 text-[12px] font-medium transition-all ${
-                  locale === opt ? "bg-accent text-white shadow-sm" : "text-fg-muted hover:text-fg"
+                  draftLocale === opt ? "bg-accent text-white shadow-sm" : "text-fg-muted hover:text-fg"
                 }`}
               >
                 {t(`lang_${opt}` as "lang_en" | "lang_ru")}
@@ -78,11 +98,11 @@ export const SettingsPanel: React.FC<SettingsPanelProps> = ({ onClose }) => {
               min={0}
               max={1}
               step={0.05}
-              value={glassIntensity}
-              onChange={(e) => setGlassIntensity(parseFloat(e.target.value))}
+              value={draftGlass}
+              onChange={(e) => setDraftGlass(parseFloat(e.target.value))}
               className="flex-1 accent-accent"
             />
-            <span className="w-8 text-right text-[12px] tabular-nums text-fg-muted">{Math.round(glassIntensity * 100)}%</span>
+            <span className="w-8 text-right text-[12px] tabular-nums text-fg-muted">{Math.round(draftGlass * 100)}%</span>
           </div>
         </div>
 
@@ -93,9 +113,9 @@ export const SettingsPanel: React.FC<SettingsPanelProps> = ({ onClose }) => {
             {(["openai", "anthropic"] as AiProvider[]).map((opt) => (
               <button
                 key={opt}
-                onClick={() => { setAiProviderState(opt); saveAiProvider(opt); }}
+                onClick={() => setDraftProvider(opt)}
                 className={`flex-1 rounded-md px-3 py-1.5 text-[12px] font-medium transition-all ${
-                  aiProvider === opt ? "bg-accent text-white shadow-sm" : "text-fg-muted hover:text-fg"
+                  draftProvider === opt ? "bg-accent text-white shadow-sm" : "text-fg-muted hover:text-fg"
                 }`}
               >
                 {opt === "openai" ? "OpenAI" : "Anthropic"}
@@ -105,17 +125,38 @@ export const SettingsPanel: React.FC<SettingsPanelProps> = ({ onClose }) => {
           <div className="relative">
             <input
               type="password"
-              value={aiApiKey}
-              onChange={(e) => { setAiApiKeyState(e.target.value); saveAiApiKey(e.target.value); }}
+              value={draftApiKey}
+              onChange={(e) => setDraftApiKey(e.target.value)}
               placeholder={t("ai_api_key_placeholder")}
               className="w-full rounded-lg border border-edge/40 bg-surface/60 px-3 pr-24 py-2 text-[12px] text-fg placeholder:text-fg-muted/40 outline-none transition-all focus:border-accent/50 focus:ring-1 focus:ring-accent/20"
             />
-            {aiApiKey && (
+            {draftApiKey && (
               <span className="absolute right-3 top-1/2 -translate-y-1/2 text-[10px] font-medium text-positive">
                 {t("ai_connected")}
               </span>
             )}
           </div>
+        </div>
+
+        {/* Apply button */}
+        <div className="mt-5 flex items-center justify-end gap-2">
+          <button
+            onClick={onClose}
+            className="rounded-md px-4 py-1.5 text-[12px] font-medium text-fg-muted transition-colors hover:bg-surface-elevated hover:text-fg"
+          >
+            {t("cancel")}
+          </button>
+          <button
+            onClick={() => { handleApply(); onClose(); }}
+            disabled={!hasChanges}
+            className={`rounded-md px-4 py-1.5 text-[12px] font-medium transition-all ${
+              hasChanges
+                ? "bg-accent text-white hover:bg-accent-hover active:scale-[0.97]"
+                : "bg-accent/30 text-white/50 cursor-not-allowed"
+            }`}
+          >
+            {t("settings_apply")}
+          </button>
         </div>
       </div>
     </div>

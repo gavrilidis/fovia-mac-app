@@ -20,18 +20,23 @@ export const PhotoViewer: React.FC<PhotoViewerProps> = ({
   const touchStartX = useRef(0);
   const touchDelta = useRef(0);
   const containerRef = useRef<HTMLDivElement>(null);
+  const imageAreaRef = useRef<HTMLDivElement>(null);
   const [fullImageBase64, setFullImageBase64] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
   const cacheRef = useRef<Map<string, string>>(new Map());
+  const [zoom, setZoom] = useState(1);
+  const [pan, setPan] = useState({ x: 0, y: 0 });
+  const [isPanning, setIsPanning] = useState(false);
+  const panStart = useRef({ x: 0, y: 0, panX: 0, panY: 0 });
 
   const photo = photos[currentIndex];
 
   const goPrev = useCallback(() => {
-    if (currentIndex > 0) onNavigate(currentIndex - 1);
+    if (currentIndex > 0) { onNavigate(currentIndex - 1); setZoom(1); setPan({ x: 0, y: 0 }); }
   }, [currentIndex, onNavigate]);
 
   const goNext = useCallback(() => {
-    if (currentIndex < photos.length - 1) onNavigate(currentIndex + 1);
+    if (currentIndex < photos.length - 1) { onNavigate(currentIndex + 1); setZoom(1); setPan({ x: 0, y: 0 }); }
   }, [currentIndex, photos.length, onNavigate]);
 
   // Load current image (from cache or fetch) + prefetch neighbors
@@ -107,14 +112,53 @@ export const PhotoViewer: React.FC<PhotoViewerProps> = ({
       if (e.key === "Escape") onClose();
       else if (e.key === "ArrowLeft") goPrev();
       else if (e.key === "ArrowRight") goNext();
+      else if (e.key === "0") { setZoom(1); setPan({ x: 0, y: 0 }); }
     };
     window.addEventListener("keydown", handleKey);
     return () => window.removeEventListener("keydown", handleKey);
   }, [onClose, goPrev, goNext]);
 
-  // Click navigation: left 50% = prev, right 50% = next
+  // Wheel zoom — anchored to cursor
+  const handleWheel = useCallback((e: React.WheelEvent) => {
+    e.preventDefault();
+    e.stopPropagation();
+    const delta = e.deltaY > 0 ? 0.9 : 1.1;
+    setZoom((prev) => {
+      const next = Math.max(0.5, Math.min(prev * delta, 10));
+      const rect = imageAreaRef.current?.getBoundingClientRect();
+      if (rect) {
+        const cx = e.clientX - rect.left - rect.width / 2;
+        const cy = e.clientY - rect.top - rect.height / 2;
+        const scale = 1 - next / prev;
+        setPan((p) => ({ x: p.x + cx * scale, y: p.y + cy * scale }));
+      }
+      return next;
+    });
+  }, []);
+
+  // Pan via mouse drag (only when zoomed)
+  const handleMouseDown = useCallback((e: React.MouseEvent) => {
+    if (e.button !== 0 || zoom <= 1) return;
+    setIsPanning(true);
+    panStart.current = { x: e.clientX, y: e.clientY, panX: pan.x, panY: pan.y };
+  }, [pan, zoom]);
+
+  const handleMouseMove = useCallback((e: React.MouseEvent) => {
+    if (!isPanning) return;
+    setPan({
+      x: panStart.current.panX + (e.clientX - panStart.current.x),
+      y: panStart.current.panY + (e.clientY - panStart.current.y),
+    });
+  }, [isPanning]);
+
+  const handleMouseUp = useCallback(() => {
+    setIsPanning(false);
+  }, []);
+
+  // Click navigation: left 50% = prev, right 50% = next (only when not zoomed)
   const handleImageClick = useCallback(
     (e: React.MouseEvent<HTMLDivElement>) => {
+      if (zoom > 1) return; // When zoomed, clicks are for panning
       const rect = e.currentTarget.getBoundingClientRect();
       const x = e.clientX - rect.left;
       if (x < rect.width / 2) {
@@ -123,7 +167,7 @@ export const PhotoViewer: React.FC<PhotoViewerProps> = ({
         goNext();
       }
     },
-    [goPrev, goNext],
+    [goPrev, goNext, zoom],
   );
 
   // Swipe navigation
@@ -163,42 +207,68 @@ export const PhotoViewer: React.FC<PhotoViewerProps> = ({
       ? `data:image/jpeg;base64,${photo.preview_base64}`
       : null;
 
+  const imgStyle: React.CSSProperties | undefined = zoom > 1
+    ? {
+        transform: `translate(${pan.x}px, ${pan.y}px) scale(${zoom})`,
+        transformOrigin: "center center",
+        transition: isPanning ? "none" : "transform 0.1s ease-out",
+      }
+    : undefined;
+
   return (
     <div
       ref={containerRef}
-      className="fixed inset-0 z-[100] flex select-none flex-col bg-black/95 backdrop-blur-xl"
+      className="fixed inset-0 z-[100] flex select-none flex-col bg-surface-alt pt-[38px] dark:bg-black/95 backdrop-blur-xl"
       onTouchStart={handleTouchStart}
       onTouchMove={handleTouchMove}
       onTouchEnd={handleTouchEnd}
     >
       {/* Top bar */}
       <div className="flex flex-shrink-0 items-center justify-between px-6 py-4">
-        <span className="text-[13px] tabular-nums text-white/50">
+        <span className="text-[13px] tabular-nums text-fg-muted">
           {currentIndex + 1} / {photos.length}
         </span>
-        <span className="max-w-[50%] truncate text-[13px] text-white/70">
+        <span className="max-w-[50%] truncate text-[13px] text-fg">
           {filename}
         </span>
-        <button
-          onClick={onClose}
-          title="Close viewer"
-          className="flex h-9 w-9 items-center justify-center rounded-xl text-white/50 transition-colors hover:bg-white/10 hover:text-white"
-        >
-          <svg className="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
-            <path strokeLinecap="round" strokeLinejoin="round" d="M6 18L18 6M6 6l12 12" />
-          </svg>
-        </button>
+        <div className="flex items-center gap-2">
+          {zoom > 1 && (
+            <button
+              onClick={() => { setZoom(1); setPan({ x: 0, y: 0 }); }}
+              title="Reset zoom (0)"
+              className="flex h-6 items-center gap-1 rounded border border-edge px-2 text-[10px] text-fg-muted transition-colors hover:bg-surface-elevated hover:text-fg"
+            >
+              {Math.round(zoom * 100)}% — Fit
+            </button>
+          )}
+          <button
+            onClick={onClose}
+            title="Close viewer"
+            className="flex h-9 w-9 items-center justify-center rounded-xl text-fg-muted transition-colors hover:bg-surface-elevated hover:text-fg"
+          >
+            <svg className="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+              <path strokeLinecap="round" strokeLinejoin="round" d="M6 18L18 6M6 6l12 12" />
+            </svg>
+          </button>
+        </div>
       </div>
 
-      {/* Image area — click left/right to navigate */}
+      {/* Image area — click left/right to navigate, wheel to zoom */}
       <div
-        className="relative flex flex-1 cursor-pointer items-center justify-center overflow-hidden"
+        ref={imageAreaRef}
+        className="relative flex flex-1 items-center justify-center overflow-hidden"
+        style={{ cursor: isPanning ? "grabbing" : zoom > 1 ? "grab" : "pointer" }}
         onClick={handleImageClick}
+        onWheel={handleWheel}
+        onMouseDown={handleMouseDown}
+        onMouseMove={handleMouseMove}
+        onMouseUp={handleMouseUp}
+        onMouseLeave={handleMouseUp}
       >
         {/* Left arrow indicator */}
         {currentIndex > 0 && (
-          <div className="pointer-events-none absolute left-6 top-1/2 -translate-y-1/2 rounded-full bg-white/5 p-2 opacity-0 transition-opacity duration-200 group-hover:opacity-100 [div:hover>&]:opacity-60">
-            <svg className="h-5 w-5 text-white/80" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+          <div className="pointer-events-none absolute left-6 top-1/2 -translate-y-1/2 rounded-full bg-fg-muted/5 p-2 opacity-0 transition-opacity duration-200 group-hover:opacity-100 [div:hover>&]:opacity-60">
+            <svg className="h-5 w-5 text-fg-muted" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
               <path strokeLinecap="round" strokeLinejoin="round" d="M15.75 19.5L8.25 12l7.5-7.5" />
             </svg>
           </div>
@@ -206,18 +276,19 @@ export const PhotoViewer: React.FC<PhotoViewerProps> = ({
 
         {loading ? (
           <div className="flex flex-col items-center gap-3">
-            <div className="h-8 w-8 animate-spin rounded-full border-2 border-white/20 border-t-white/70" />
-            <span className="text-[13px] text-white/40">Loading full image...</span>
+            <div className="h-8 w-8 animate-spin rounded-full border-2 border-fg-muted/20 border-t-fg-muted/70" />
+            <span className="text-[13px] text-fg-muted">Loading full image...</span>
           </div>
         ) : displaySrc ? (
           <img
             src={displaySrc}
             alt={filename}
             className="max-h-full max-w-full object-contain"
+            style={imgStyle}
             draggable={false}
           />
         ) : (
-          <div className="flex flex-col items-center gap-3 text-white/30">
+          <div className="flex flex-col items-center gap-3 text-fg-muted/30">
             <svg className="h-16 w-16" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={0.8}>
               <path strokeLinecap="round" strokeLinejoin="round" d="M2.25 15.75l5.159-5.159a2.25 2.25 0 013.182 0l5.159 5.159m-1.5-1.5l1.409-1.409a2.25 2.25 0 013.182 0l2.909 2.909M3.75 21h16.5a2.25 2.25 0 002.25-2.25V5.25a2.25 2.25 0 00-2.25-2.25H3.75A2.25 2.25 0 001.5 5.25v13.5A2.25 2.25 0 003.75 21z" />
             </svg>
@@ -227,8 +298,8 @@ export const PhotoViewer: React.FC<PhotoViewerProps> = ({
 
         {/* Right arrow indicator */}
         {currentIndex < photos.length - 1 && (
-          <div className="pointer-events-none absolute right-6 top-1/2 -translate-y-1/2 rounded-full bg-white/5 p-2 opacity-0 transition-opacity duration-200 [div:hover>&]:opacity-60">
-            <svg className="h-5 w-5 text-white/80" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+          <div className="pointer-events-none absolute right-6 top-1/2 -translate-y-1/2 rounded-full bg-fg-muted/5 p-2 opacity-0 transition-opacity duration-200 [div:hover>&]:opacity-60">
+            <svg className="h-5 w-5 text-fg-muted" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
               <path strokeLinecap="round" strokeLinejoin="round" d="M8.25 4.5l7.5 7.5-7.5 7.5" />
             </svg>
           </div>
@@ -237,7 +308,7 @@ export const PhotoViewer: React.FC<PhotoViewerProps> = ({
 
       {/* Bottom info bar */}
       <div className="flex flex-shrink-0 items-center justify-center px-6 py-3">
-        <span className="text-[11px] text-white/30">
+        <span className="text-[11px] text-fg-muted">
           Score: {(photo.detection_score * 100).toFixed(0)}%
         </span>
       </div>
