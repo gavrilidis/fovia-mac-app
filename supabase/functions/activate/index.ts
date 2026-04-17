@@ -65,6 +65,7 @@ Deno.serve(async (req) => {
   }
 
   const now = new Date().toISOString();
+  // Keep first activation timestamp stable across re-activations on the same machine.
   const activatedAt = activationRow?.activated_at ?? now;
   const { error: upsertError } = await admin.from("activations").upsert(
     {

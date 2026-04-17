@@ -69,6 +69,8 @@ Set the secret via environment variable:
 export FACEFLOW_SECRET=your_hex_secret
 ```
 
+Note: this secret is embedded at compile time in development/release artifacts. If you rotate it, rebuild the app to keep encrypted local secrets readable with the new keying scheme.
+
 Or create a local file (do not commit):
 
 ```bash

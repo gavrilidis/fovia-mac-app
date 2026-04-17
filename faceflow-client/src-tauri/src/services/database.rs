@@ -80,6 +80,7 @@ pub fn open_database(db_path: &Path) -> Result<DbPool, String> {
         Ok(())
     });
     Pool::builder()
+        // Keep a small fixed pool to avoid lock contention while limiting memory overhead.
         .max_size(4)
         .build(manager)
         .map_err(|e| format!("Failed to build database pool: {e}"))

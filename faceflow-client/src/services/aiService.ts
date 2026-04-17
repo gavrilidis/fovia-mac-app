@@ -165,7 +165,7 @@ async function analyzeWithOpenAICompatible(baseUrl: string, apiKey: string, mode
           content: [
             {
               type: "text",
-              text: 'Analyze this photo. Return a JSON object with two fields: "tags" and "description". Return ONLY valid JSON.',
+              text: 'Analyze this photo. Return a JSON object with two fields: "tags" (array of 10-20 descriptive keywords — include BOTH English AND Russian for each concept, e.g. "man", "мужчина", "outdoor", "на улице". Cover: scene type, objects, people descriptions, activities, colors, emotions, weather, time of day, location type) and "description" (one sentence English description). Return ONLY valid JSON, no markdown.',
             },
             {
               type: "image_url",
@@ -208,7 +208,7 @@ async function analyzeWithAnthropic(apiKey: string, model: string, base64Image: 
             },
             {
               type: "text",
-              text: 'Analyze this photo. Return a JSON object with two fields: "tags" and "description". Return ONLY valid JSON.',
+              text: 'Analyze this photo. Return a JSON object with two fields: "tags" (array of 10-20 descriptive keywords — include BOTH English AND Russian for each concept, e.g. "man", "мужчина", "outdoor", "на улице". Cover: scene type, objects, people descriptions, activities, colors, emotions, weather, time of day, location type) and "description" (one sentence English description). Return ONLY valid JSON, no markdown.',
             },
           ],
         },
@@ -237,7 +237,9 @@ async function analyzeWithGemini(apiKey: string, model: string, base64Image: str
         contents: [
           {
             parts: [
-              { text: 'Analyze this photo. Return JSON with "tags" and "description". Return ONLY JSON.' },
+              {
+                text: 'Analyze this photo. Return a JSON object with two fields: "tags" (array of 10-20 descriptive keywords — include BOTH English AND Russian for each concept, e.g. "man", "мужчина", "outdoor", "на улице". Cover: scene type, objects, people descriptions, activities, colors, emotions, weather, time of day, location type) and "description" (one sentence English description). Return ONLY valid JSON, no markdown.',
+              },
               { inline_data: { mime_type: "image/jpeg", data: base64Image } },
             ],
           },

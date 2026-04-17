@@ -20,6 +20,7 @@ interface PhotoGridProps {
 }
 
 const PREVIEW_CACHE_LIMIT = 500;
+const OVERSCAN_PIXELS = 200;
 const previewCache = new Map<string, string>();
 
 function getCached(path: string): string | null {
@@ -176,7 +177,7 @@ export const PhotoGrid: React.FC<PhotoGridProps> = ({
     count: rows.length,
     getScrollElement: () => parentRef.current,
     estimateSize: () => rowHeight,
-    overscan: Math.ceil(200 / rowHeight) + 1,
+    overscan: Math.ceil(OVERSCAN_PIXELS / rowHeight) + 1,
   });
 
   if (photos.length === 0) {

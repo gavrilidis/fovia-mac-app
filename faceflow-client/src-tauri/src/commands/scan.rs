@@ -477,6 +477,7 @@ pub async fn download_models(app: AppHandle) -> Result<(), String> {
 }
 
 const EXIFTOOL_VERSION: &str = "13.55";
+const EXIFTOOL_ORG_SHA256: &str = "5c9d422ad128fab728aacc5cc0aa77095d14cde74931389dd961d3d720e6b316";
 
 /// Candidate download URLs for exiftool, tried in order.
 fn exiftool_download_urls() -> Vec<String> {
@@ -530,6 +531,13 @@ pub async fn download_exiftool(app: AppHandle) -> Result<(), String> {
                     if url.contains("github.com") && hash != EXIFTOOL_GITHUB_SHA256 {
                         last_err = format!(
                             "ExifTool archive hash mismatch for {url}. Expected {EXIFTOOL_GITHUB_SHA256}, got {hash}"
+                        );
+                        log::warn!("{last_err}");
+                        continue;
+                    }
+                    if url.contains("exiftool.org") && hash != EXIFTOOL_ORG_SHA256 {
+                        last_err = format!(
+                            "ExifTool archive hash mismatch for {url}. Expected {EXIFTOOL_ORG_SHA256}, got {hash}"
                         );
                         log::warn!("{last_err}");
                         continue;

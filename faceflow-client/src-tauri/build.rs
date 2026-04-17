@@ -8,7 +8,7 @@ fn main() {
         .filter(|v| !v.trim().is_empty())
         .or(file_secret)
         .expect(
-            "FACEFLOW secret not configured. Set FACEFLOW_SECRET or create src-tauri/activation.secret for local development.",
+            "FACEFLOW secret not configured. Set FACEFLOW_SECRET or create faceflow-client/src-tauri/activation.secret for local development.",
         );
     println!("cargo:rustc-env=FACEFLOW_SECRET={secret}");
     println!("cargo:rerun-if-changed=activation.secret");
