@@ -130,16 +130,43 @@ export async function testAiConnection(provider: AIProvider, model: string, apiK
   if (!trimmed) {
     throw new Error("API key is required");
   }
-  const testImage = "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/w8AAgMBAQEAzOwAAAAASUVORK5CYII=";
-  if (provider === "anthropic") {
-    await analyzeWithAnthropic(trimmed, model, testImage);
-    return;
-  }
+  const cfg = providerConfig(provider);
+
   if (provider === "gemini") {
-    await analyzeWithGemini(trimmed, model, testImage);
+    const response = await fetch(
+      `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent`,
+      {
+        method: "POST",
+        headers: { "Content-Type": "application/json", "x-goog-api-key": trimmed },
+        body: JSON.stringify({ contents: [{ parts: [{ text: "Reply OK" }] }], generationConfig: { maxOutputTokens: 4 } }),
+      },
+    );
+    if (!response.ok) throw new Error(`Gemini API error: ${response.status} ${await response.text()}`);
     return;
   }
-  await analyzeWithOpenAICompatible(providerConfig(provider).baseUrl, trimmed, model, testImage);
+
+  if (provider === "anthropic") {
+    const response = await fetch("https://api.anthropic.com/v1/messages", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        "x-api-key": trimmed,
+        "anthropic-version": "2023-06-01",
+        "anthropic-dangerous-direct-browser-access": "true",
+      },
+      body: JSON.stringify({ model, max_tokens: 4, messages: [{ role: "user", content: "Reply OK" }] }),
+    });
+    if (!response.ok) throw new Error(`Anthropic API error: ${response.status} ${await response.text()}`);
+    return;
+  }
+
+  // OpenAI-compatible providers (OpenAI, Qwen, Grok)
+  const response = await fetch(`${cfg.baseUrl}/chat/completions`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json", Authorization: `Bearer ${trimmed}` },
+    body: JSON.stringify({ model, max_tokens: 4, messages: [{ role: "user", content: "Reply OK" }] }),
+  });
+  if (!response.ok) throw new Error(`Provider API error: ${response.status} ${await response.text()}`);
 }
 
 async function analyzeWithOpenAICompatible(baseUrl: string, apiKey: string, model: string, base64Image: string): Promise<AiTagResult> {
