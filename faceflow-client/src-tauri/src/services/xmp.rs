@@ -1,7 +1,6 @@
 use std::io::Write;
-use std::path::Path;
+use std::path::{Path, PathBuf};
 
-/// Map FaceFlow color labels to XMP xmp:Label values recognised by Adobe Lightroom and Capture One.
 fn xmp_label(color: &str) -> &str {
     match color {
         "red" => "Red",
@@ -13,8 +12,6 @@ fn xmp_label(color: &str) -> &str {
     }
 }
 
-/// Map FaceFlow pick_status to XMP xmp:PickLabel integer.
-/// Lightroom convention: 1 = Picked, -1 = Rejected, 0 = Unflagged.
 fn xmp_pick(status: &str) -> i32 {
     match status {
         "pick" => 1,
@@ -23,44 +20,79 @@ fn xmp_pick(status: &str) -> i32 {
     }
 }
 
-/// Write (or overwrite) an Adobe-compatible XMP sidecar for the given image file.
-///
-/// The sidecar is placed alongside the original:  
-///   `/photos/DSC_1234.NEF` → `/photos/DSC_1234.xmp`
-///
-/// Fields written:
-/// - `xmp:Rating`   (0-5)
-/// - `xmp:Label`    (Red, Yellow, Green, Blue, Purple, or empty)
-/// - `xmp:PickLabel` (1 / -1 / 0 — Lightroom flag)
+fn xml_escape(value: &str) -> String {
+    value
+        .replace('&', "&amp;")
+        .replace('<', "&lt;")
+        .replace('>', "&gt;")
+        .replace('"', "&quot;")
+        .replace('\'', "&apos;")
+}
+
 pub fn write_xmp_sidecar(
     image_path: &str,
     rating: i32,
     color_label: &str,
     pick_status: &str,
 ) -> Result<(), String> {
+    write_xmp_sidecar_with_keywords(image_path, None, rating, color_label, pick_status, &[])
+}
+
+pub fn write_xmp_sidecar_with_keywords(
+    image_path: &str,
+    output_dir: Option<&Path>,
+    rating: i32,
+    color_label: &str,
+    pick_status: &str,
+    keywords: &[String],
+) -> Result<PathBuf, String> {
     let src = Path::new(image_path);
-    let xmp_path = src.with_extension("xmp");
+    let file_stem = src
+        .file_stem()
+        .and_then(|s| s.to_str())
+        .ok_or_else(|| format!("Invalid source file path: {image_path}"))?;
+    let xmp_path = if let Some(dir) = output_dir {
+        dir.join(format!("{file_stem}.xmp"))
+    } else {
+        src.with_extension("xmp")
+    };
+
+    if let Some(parent) = xmp_path.parent() {
+        std::fs::create_dir_all(parent)
+            .map_err(|e| format!("Failed to create XMP output directory {}: {e}", parent.display()))?;
+    }
 
     let label = xmp_label(color_label);
     let pick = xmp_pick(pick_status);
+    let escaped_keywords: Vec<String> = keywords.iter().map(|k| xml_escape(k)).collect();
 
-    // Build minimal but standards-compliant XMP packet.
-    // Uses only the `xmp:` namespace so both Lightroom and Capture One pick it up.
-    let mut xml = String::with_capacity(512);
+    let mut xml = String::with_capacity(1024);
     xml.push_str("<?xpacket begin=\"\u{feff}\" id=\"W5M0MpCehiHzreSzNTczkc9d\"?>\n");
     xml.push_str("<x:xmpmeta xmlns:x=\"adobe:ns:meta/\">\n");
     xml.push_str(" <rdf:RDF xmlns:rdf=\"http://www.w3.org/1999/02/22-rdf-syntax-ns#\">\n");
     xml.push_str("  <rdf:Description rdf:about=\"\"\n");
-    xml.push_str("   xmlns:xmp=\"http://ns.adobe.com/xap/1.0/\">\n");
-
-    xml.push_str(&format!("   <xmp:Rating>{rating}</xmp:Rating>\n"));
-
+    xml.push_str("   xmlns:xmp=\"http://ns.adobe.com/xap/1.0/\"\n");
+    xml.push_str("   xmlns:dc=\"http://purl.org/dc/elements/1.1/\"\n");
+    xml.push_str("   xmlns:photoshop=\"http://ns.adobe.com/photoshop/1.0/\">\n");
+    xml.push_str(&format!(
+        "   <xmp:Rating>{}</xmp:Rating>\n",
+        rating.clamp(0, 5)
+    ));
     if !label.is_empty() {
         xml.push_str(&format!("   <xmp:Label>{label}</xmp:Label>\n"));
     }
-
     xml.push_str(&format!("   <xmp:PickLabel>{pick}</xmp:PickLabel>\n"));
-
+    if !escaped_keywords.is_empty() {
+        xml.push_str("   <dc:subject><rdf:Bag>\n");
+        for keyword in &escaped_keywords {
+            xml.push_str(&format!("    <rdf:li>{keyword}</rdf:li>\n"));
+        }
+        xml.push_str("   </rdf:Bag></dc:subject>\n");
+        xml.push_str(&format!(
+            "   <photoshop:Keywords>{}</photoshop:Keywords>\n",
+            escaped_keywords.join(";")
+        ));
+    }
     xml.push_str("  </rdf:Description>\n");
     xml.push_str(" </rdf:RDF>\n");
     xml.push_str("</x:xmpmeta>\n");
@@ -70,7 +102,5 @@ pub fn write_xmp_sidecar(
         .map_err(|e| format!("Failed to create XMP sidecar {}: {e}", xmp_path.display()))?;
     file.write_all(xml.as_bytes())
         .map_err(|e| format!("Failed to write XMP sidecar {}: {e}", xmp_path.display()))?;
-
-    log::info!("Wrote XMP sidecar: {}", xmp_path.display());
-    Ok(())
+    Ok(xmp_path)
 }

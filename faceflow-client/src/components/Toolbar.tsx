@@ -16,6 +16,7 @@ interface ToolbarProps {
   onSetPickStatus: (paths: string[], status: PickStatus) => void;
   onRevealPhotos: () => void;
   onExport: () => void;
+  onExportXmp: () => void;
   onCompare: () => void;
   onToggleExif: () => void;
   onReset: () => void;
@@ -80,6 +81,7 @@ export const Toolbar: React.FC<ToolbarProps> = ({
   onSetPickStatus,
   onRevealPhotos,
   onExport,
+  onExportXmp,
   onCompare,
   onToggleExif,
   onReset,
@@ -513,6 +515,13 @@ export const Toolbar: React.FC<ToolbarProps> = ({
                 <path strokeLinecap="round" strokeLinejoin="round" d="M3 16.5v2.25A2.25 2.25 0 005.25 21h13.5A2.25 2.25 0 0021 18.75V16.5m-13.5-9L12 3m0 0l4.5 4.5M12 3v13.5" />
               </svg>
               {t("toolbar_export")}
+            </button>
+            <button
+              onClick={onExportXmp}
+              title={t("toolbar_export_xmp")}
+              className="ml-1 flex h-7 items-center gap-1.5 rounded-md border border-edge px-3 text-[11px] font-medium text-fg transition-all duration-150 hover:bg-surface-elevated"
+            >
+              {t("toolbar_export_xmp")}
             </button>
           </div>
         </div>

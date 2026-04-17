@@ -119,6 +119,7 @@ export const en = {
   toolbar_compare: "Compare",
   toolbar_reveal: "Reveal in Finder",
   toolbar_export: "Export",
+  toolbar_export_xmp: "Export XMP",
   toolbar_move_to: "Move to...",
   toolbar_new_person: "New person group",
   toolbar_min_gap: "{gap}min gap",
@@ -152,6 +153,7 @@ export const en = {
 
   // Glass
   glass_intensity: "Glass Effect",
+  face_match_sensitivity: "Face matching sensitivity",
 
   // HelpDialog
   help_title: "FaceFlow Help",
@@ -273,6 +275,8 @@ export const en = {
   badge_picked: "Picked",
   badge_rejected: "Rejected",
   badge_ai_tagged: "AI tags applied",
+  xmp_export_done: "XMP exported: {count}",
+  xmp_export_failed: "XMP export failed",
 } as const;
 
 export type TranslationKey = keyof typeof en;

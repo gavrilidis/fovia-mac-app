@@ -35,6 +35,11 @@ function App() {
   const [faceGroups, setFaceGroups] = useState<FaceGroup[]>([]);
   const [noFaceFiles, setNoFaceFiles] = useState<string[]>([]);
   const [error, setError] = useState<string | null>(null);
+  const [faceMatchThreshold] = useState<number>(() => {
+    const value = localStorage.getItem("faceflow-face-threshold");
+    const parsed = value ? Number(value) : 0.38;
+    return Number.isFinite(parsed) ? parsed : 0.38;
+  });
 
   const handleRetryModels = useCallback(async () => {
     setError(null);
@@ -110,7 +115,7 @@ function App() {
         detectionThreshold,
       });
 
-      const groups = groupFacesByIdentity(result.faces);
+      const groups = await groupFacesByIdentity(result.faces, faceMatchThreshold);
       setFaceGroups(groups);
       setNoFaceFiles(result.no_face_files);
       setView("gallery");
@@ -119,7 +124,7 @@ function App() {
       setError(message);
       setView("dropzone");
     }
-  }, []);
+  }, [faceMatchThreshold]);
 
   useEffect(() => {
     const unlisten = listen<ScanProgress>("scan-progress", (event) => {

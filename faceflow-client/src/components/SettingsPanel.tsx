@@ -27,6 +27,11 @@ export const SettingsPanel: React.FC<SettingsPanelProps> = ({ onClose }) => {
   const [draftModel, setDraftModel] = useState(getAiModel(getAiProvider()));
   const [draftApiKey, setDraftApiKey] = useState("");
   const [savedApiKey, setSavedApiKey] = useState("");
+  const [draftFaceSensitivity, setDraftFaceSensitivity] = useState(() => {
+    const raw = localStorage.getItem("faceflow-face-threshold");
+    const parsed = raw ? Number(raw) : 0.38;
+    return Number.isFinite(parsed) ? parsed : 0.38;
+  });
   const [status, setStatus] = useState<string | null>(null);
 
   const currentConfig = useMemo(
@@ -56,7 +61,8 @@ export const SettingsPanel: React.FC<SettingsPanelProps> = ({ onClose }) => {
     draftGlass !== glassIntensity ||
     draftProvider !== getAiProvider() ||
     draftModel !== getAiModel(draftProvider) ||
-    draftApiKey !== savedApiKey;
+    draftApiKey !== savedApiKey ||
+    Number(localStorage.getItem("faceflow-face-threshold") ?? "0.38") !== draftFaceSensitivity;
 
   const handleApply = async () => {
     setTheme(draftTheme);
@@ -65,6 +71,7 @@ export const SettingsPanel: React.FC<SettingsPanelProps> = ({ onClose }) => {
     saveAiProvider(draftProvider);
     saveAiModel(draftProvider, draftModel);
     await saveAiApiKey(draftProvider, draftApiKey);
+    localStorage.setItem("faceflow-face-threshold", draftFaceSensitivity.toFixed(2));
     setSavedApiKey(draftApiKey);
   };
 
@@ -144,6 +151,22 @@ export const SettingsPanel: React.FC<SettingsPanelProps> = ({ onClose }) => {
               className="flex-1 accent-accent"
             />
             <span className="w-8 text-right text-[12px] tabular-nums text-fg-muted">{Math.round(draftGlass * 100)}%</span>
+          </div>
+        </div>
+
+        <div className="mt-4">
+          <label className="mb-2 block text-[11px] font-semibold uppercase tracking-[0.18em] text-fg-muted/60">{t("face_match_sensitivity")}</label>
+          <div className="flex items-center gap-3">
+            <input
+              type="range"
+              min={0.3}
+              max={0.6}
+              step={0.01}
+              value={draftFaceSensitivity}
+              onChange={(e) => setDraftFaceSensitivity(parseFloat(e.target.value))}
+              className="flex-1 accent-accent"
+            />
+            <span className="w-10 text-right text-[12px] tabular-nums text-fg-muted">{draftFaceSensitivity.toFixed(2)}</span>
           </div>
         </div>
 

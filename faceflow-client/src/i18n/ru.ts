@@ -121,6 +121,7 @@ export const ru: Record<TranslationKey, string> = {
   toolbar_compare: "Сравнить",
   toolbar_reveal: "Показать в Finder",
   toolbar_export: "Экспорт",
+  toolbar_export_xmp: "Экспорт XMP",
   toolbar_move_to: "Переместить в...",
   toolbar_new_person: "Новая группа",
   toolbar_min_gap: "{gap}мин интервал",
@@ -154,6 +155,7 @@ export const ru: Record<TranslationKey, string> = {
 
   // Glass
   glass_intensity: "Эффект стекла",
+  face_match_sensitivity: "Чувствительность сопоставления лиц",
 
   // HelpDialog
   help_title: "Справка FaceFlow",
@@ -275,4 +277,6 @@ export const ru: Record<TranslationKey, string> = {
   badge_picked: "Отобрано",
   badge_rejected: "Отклонено",
   badge_ai_tagged: "AI теги присвоены",
+  xmp_export_done: "XMP экспортировано: {count}",
+  xmp_export_failed: "Ошибка экспорта XMP",
 };

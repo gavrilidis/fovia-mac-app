@@ -9,12 +9,66 @@
     "core:default",
     "core:window:allow-start-dragging",
     "fs:default",
-    "fs:allow-read-file",
+    {
+      "identifier": "fs:allow-read-file",
+      "allow": [
+        {
+          "path": "$APPDATA/**"
+        },
+        {
+          "path": "$HOME/Pictures/**"
+        },
+        {
+          "path": "$HOME/Desktop/**"
+        },
+        {
+          "path": "$HOME/Documents/**"
+        },
+        {
+          "path": "$HOME/Downloads/**"
+        }
+      ]
+    },
     "fs:allow-exists",
-    "fs:allow-read-dir",
+    {
+      "identifier": "fs:allow-read-dir",
+      "allow": [
+        {
+          "path": "$APPDATA/**"
+        },
+        {
+          "path": "$HOME/Pictures/**"
+        },
+        {
+          "path": "$HOME/Desktop/**"
+        },
+        {
+          "path": "$HOME/Documents/**"
+        },
+        {
+          "path": "$HOME/Downloads/**"
+        }
+      ]
+    },
     "shell:default",
-    "shell:allow-execute",
-    "shell:allow-spawn",
+    {
+      "identifier": "shell:allow-execute",
+      "allow": [
+        {
+          "name": "exiftool",
+          "cmd": "exiftool"
+        }
+      ]
+    },
+    {
+      "identifier": "shell:allow-spawn",
+      "allow": [
+        {
+          "name": "exiftool",
+          "cmd": "exiftool"
+        }
+      ]
+    },
     "dialog:default",
     "dialog:allow-open",
     "updater:default",

@@ -65,10 +65,12 @@ pub fn run() {
             commands::scan::read_exif_metadata,
             commands::scan::compute_blur_score,
             commands::scan::export_photos,
+            commands::scan::export_xmp_sidecars,
             commands::scan::auto_group_by_event,
             services::secrets::save_secret,
             services::secrets::get_secret,
             services::secrets::delete_secret,
+            services::clustering::cluster_faces_command,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

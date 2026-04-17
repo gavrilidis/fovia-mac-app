@@ -6,6 +6,7 @@ use base64::{engine::general_purpose::STANDARD as BASE64, Engine};
 use r2d2::PooledConnection;
 use r2d2_sqlite::SqliteConnectionManager;
 use serde::{Deserialize, Serialize};
+use sha2::{Digest, Sha256};
 use sysinfo::Disks;
 use tauri::{AppHandle, Emitter, Manager};
 
@@ -357,7 +358,9 @@ pub fn load_models(app: AppHandle) -> Result<(), String> {
 
 const BUFFALO_URL: &str =
     "https://github.com/deepinsight/insightface/releases/download/v0.7/buffalo_l.zip";
+const BUFFALO_SHA256: &str = "80ffe37d8a5940d59a7384c201a2a38d4741f2f3c51eef46ebb28218a7b0ca2f";
 const REQUIRED_MODELS: [&str; 2] = ["det_10g.onnx", "w600k_r50.onnx"];
+const EXIFTOOL_GITHUB_SHA256: &str = "5c9d422ad128fab728aacc5cc0aa77095d14cde74931389dd961d3d720e6b316";
 
 /// Progress payload emitted during model download.
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -365,6 +368,12 @@ pub struct DownloadProgress {
     pub downloaded_bytes: u64,
     pub total_bytes: u64,
     pub phase: String, // "downloading" | "extracting" | "done"
+}
+
+fn sha256_hex(data: &[u8]) -> String {
+    let mut hasher = Sha256::new();
+    hasher.update(data);
+    format!("{:x}", hasher.finalize())
 }
 
 /// Download ONNX models from InsightFace GitHub releases with streaming progress.
@@ -430,6 +439,13 @@ pub async fn download_models(app: AppHandle) -> Result<(), String> {
     )
     .ok();
 
+    let hash = sha256_hex(&data);
+    if hash != BUFFALO_SHA256 {
+        return Err(format!(
+            "Model archive integrity check failed (sha256 mismatch). Expected {BUFFALO_SHA256}, got {hash}"
+        ));
+    }
+
     // Extract required models from zip
     let cursor = std::io::Cursor::new(&data);
     let mut archive =
@@ -467,8 +483,6 @@ fn exiftool_download_urls() -> Vec<String> {
     vec![
         // Primary: exiftool.org (only hosts the latest version, may 404 for older)
         format!("https://exiftool.org/Image-ExifTool-{EXIFTOOL_VERSION}.tar.gz"),
-        // Fallback: SourceForge (permanent archive of all versions)
-        format!("https://sourceforge.net/projects/exiftool/files/Image-ExifTool-{EXIFTOOL_VERSION}.tar.gz/download"),
         // Fallback 2: GitHub mirror
         format!("https://github.com/exiftool/exiftool/archive/refs/tags/{EXIFTOOL_VERSION}.tar.gz"),
     ]
@@ -512,6 +526,14 @@ pub async fn download_exiftool(app: AppHandle) -> Result<(), String> {
         match client.get(url).send().await {
             Ok(response) if response.status().is_success() => match response.bytes().await {
                 Ok(bytes) => {
+                    let hash = sha256_hex(&bytes);
+                    if url.contains("github.com") && hash != EXIFTOOL_GITHUB_SHA256 {
+                        last_err = format!(
+                            "ExifTool archive hash mismatch for {url}. Expected {EXIFTOOL_GITHUB_SHA256}, got {hash}"
+                        );
+                        log::warn!("{last_err}");
+                        continue;
+                    }
                     log::info!(
                         "exiftool downloaded successfully from {url} ({} bytes)",
                         bytes.len()
@@ -1305,6 +1327,48 @@ pub async fn export_photos(file_paths: Vec<String>, config: ExportConfig) -> Res
                 .map_err(|e| format!("Failed to copy {}: {e}", src_path))?;
         }
 
+        exported += 1;
+    }
+
+    Ok(exported)
+}
+
+#[tauri::command]
+pub fn export_xmp_sidecars(
+    app: AppHandle,
+    photo_ids: Vec<String>,
+    output_dir: String,
+) -> Result<usize, String> {
+    if photo_ids.is_empty() {
+        return Ok(0);
+    }
+    let conn = get_db_connection(&app)?;
+    let output_path = if output_dir.trim().is_empty() {
+        None
+    } else {
+        Some(PathBuf::from(output_dir))
+    };
+    let mut exported = 0usize;
+
+    for file_path in &photo_ids {
+        let metadata = database::get_photo_metadata(&conn, file_path)?;
+        let (rating, color_label, pick_status) = if let Some(m) = metadata {
+            (m.rating, m.color_label, m.pick_status)
+        } else {
+            (0, "none".to_string(), "none".to_string())
+        };
+        let keywords = database::get_tags_for_photo(&conn, file_path)?
+            .into_iter()
+            .map(|(_, name)| name)
+            .collect::<Vec<_>>();
+        xmp::write_xmp_sidecar_with_keywords(
+            file_path,
+            output_path.as_deref(),
+            rating,
+            &color_label,
+            &pick_status,
+            &keywords,
+        )?;
         exported += 1;
     }
 

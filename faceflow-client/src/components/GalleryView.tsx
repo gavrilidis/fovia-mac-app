@@ -257,6 +257,18 @@ export const GalleryView: React.FC<GalleryViewProps> = ({ groups, noFaceFiles, o
     }
   }, [selectedPhotoPaths]);
 
+  const handleExportXmp = useCallback(async () => {
+    if (selectedPhotoPaths.length === 0) return;
+    try {
+      await invoke<number>("export_xmp_sidecars", { photoIds: selectedPhotoPaths, outputDir: "" });
+      setAiStatus(t("xmp_export_done").replace("{count}", String(selectedPhotoPaths.length)));
+      setTimeout(() => setAiStatus(null), 3000);
+    } catch (err) {
+      setAiStatus(`${t("xmp_export_failed")}: ${err instanceof Error ? err.message : String(err)}`);
+      setTimeout(() => setAiStatus(null), 5000);
+    }
+  }, [selectedPhotoPaths, t]);
+
   const handleRevealSelected = useCallback(async () => {
     if (selectedGroupIds.size === 0) return;
     const filePaths = mutableGroups
@@ -481,6 +493,7 @@ export const GalleryView: React.FC<GalleryViewProps> = ({ groups, noFaceFiles, o
         onSetPickStatus={setPickStatus}
         onRevealPhotos={handleRevealPhotos}
         onExport={() => setShowExport(true)}
+        onExportXmp={handleExportXmp}
         onCompare={() => setShowCompare(true)}
         onToggleExif={() => setShowExif((v) => !v)}
         onReset={onReset}
