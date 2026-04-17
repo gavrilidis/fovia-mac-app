@@ -55,3 +55,6 @@ npm-debug.log*
 .Spotlight-V100
 .Trashes
 repomix-output.xml
+
+# Supabase CLI temp
+supabase/.temp/
