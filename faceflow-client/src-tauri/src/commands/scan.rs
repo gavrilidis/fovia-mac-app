@@ -10,7 +10,7 @@ use sha2::{Digest, Sha256};
 use sysinfo::Disks;
 use tauri::{AppHandle, Emitter, Manager};
 
-use crate::services::{activation, database, extractor, inference::FaceModels, scanner, xmp};
+use crate::services::{activation, database, extractor, inference, inference::FaceModels, scanner, xmp};
 
 /// Maximum retries for transient inference failures.
 const MAX_RETRIES: u32 = 3;
@@ -20,9 +20,7 @@ const MAX_RETRIES: u32 = 3;
 pub struct DbState(pub database::DbPool);
 pub struct ModelState(pub Mutex<Option<FaceModels>>);
 
-fn get_db_connection(
-    app: &AppHandle,
-) -> Result<PooledConnection<SqliteConnectionManager>, String> {
+fn get_db_connection(app: &AppHandle) -> Result<PooledConnection<SqliteConnectionManager>, String> {
     let db = app.state::<DbState>();
     db.0.get()
         .map_err(|e| format!("Failed to get DB connection from pool: {e}"))
@@ -62,6 +60,16 @@ pub struct ScanResult {
     pub total_files: usize,
     pub total_faces: usize,
     pub no_face_files: Vec<String>,
+    pub processed_count: usize,
+    pub skipped_files: Vec<String>,
+}
+
+#[derive(Debug, Serialize, Deserialize, Clone)]
+pub struct ScanSummary {
+    pub folder_path: String,
+    pub total_files: usize,
+    pub processed_count: usize,
+    pub skipped_files: Vec<String>,
 }
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
@@ -264,10 +272,13 @@ pub async fn check_activation(app: AppHandle) -> Result<bool, String> {
             }
         }
         Err(e) => {
-            log::warn!("Could not get machine ID: {}, checking grace period", e);
-            if !activation::is_grace_period_valid(&app_data, &machine_id) {
-                return Ok(false);
-            }
+            // Without a machine ID we cannot verify the signed grace-period
+            // timestamp, so fail closed and require re-activation.
+            log::warn!(
+                "Could not get machine ID: {}, cannot verify grace period",
+                e
+            );
+            return Ok(false);
         }
     }
 
@@ -360,7 +371,8 @@ const BUFFALO_URL: &str =
     "https://github.com/deepinsight/insightface/releases/download/v0.7/buffalo_l.zip";
 const BUFFALO_SHA256: &str = "80ffe37d8a5940d59a7384c201a2a38d4741f2f3c51eef46ebb28218a7b0ca2f";
 const REQUIRED_MODELS: [&str; 2] = ["det_10g.onnx", "w600k_r50.onnx"];
-const EXIFTOOL_GITHUB_SHA256: &str = "5c9d422ad128fab728aacc5cc0aa77095d14cde74931389dd961d3d720e6b316";
+const EXIFTOOL_GITHUB_SHA256: &str =
+    "5c9d422ad128fab728aacc5cc0aa77095d14cde74931389dd961d3d720e6b316";
 
 /// Progress payload emitted during model download.
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -477,7 +489,8 @@ pub async fn download_models(app: AppHandle) -> Result<(), String> {
 }
 
 const EXIFTOOL_VERSION: &str = "13.55";
-const EXIFTOOL_ORG_SHA256: &str = "5c9d422ad128fab728aacc5cc0aa77095d14cde74931389dd961d3d720e6b316";
+const EXIFTOOL_ORG_SHA256: &str =
+    "11645f015d85a56d3090ff04fbf0b07b6a8f7ee941dd93186e32985f3fd6d041";
 
 /// Candidate download URLs for exiftool, tried in order.
 fn exiftool_download_urls() -> Vec<String> {
@@ -663,6 +676,8 @@ pub fn load_saved_faces(app: AppHandle, folder_path: String) -> Result<ScanResul
         total_files: 0,
         total_faces,
         no_face_files: Vec::new(),
+        processed_count: 0,
+        skipped_files: Vec::new(),
     })
 }
 
@@ -670,15 +685,40 @@ fn emit_progress(app: &AppHandle, progress: &ScanProgress) {
     let _ = app.emit("scan-progress", progress.clone());
 }
 
+/// Return any previously saved scan progress for the given folder, if present.
+#[tauri::command]
+pub fn get_scan_progress(
+    app: AppHandle,
+    folder_path: String,
+) -> Result<Option<database::ScanProgressRow>, String> {
+    let conn = get_db_connection(&app)?;
+    database::get_scan_progress(&conn, &folder_path)
+}
+
+/// Remove any saved scan progress for the given folder.
+#[tauri::command]
+pub fn clear_scan_progress(app: AppHandle, folder_path: String) -> Result<(), String> {
+    let conn = get_db_connection(&app)?;
+    database::clear_scan_progress(&conn, &folder_path)
+}
+
 #[tauri::command]
 pub async fn scan_folder(
     app: AppHandle,
     folder_path: String,
     detection_threshold: f64,
+    resume: Option<bool>,
 ) -> Result<ScanResult, String> {
     let root = PathBuf::from(&folder_path);
     if !root.exists() || !root.is_dir() {
         return Err(format!("Invalid folder: {folder_path}"));
+    }
+
+    // If the caller is starting a fresh scan, wipe any prior resume state so
+    // failures from previous runs do not surface as "skipped" in this run.
+    if !resume.unwrap_or(false) {
+        let conn = get_db_connection(&app)?;
+        let _ = database::clear_scan_progress(&conn, &folder_path);
     }
 
     // Phase 1: discover image files
@@ -753,6 +793,29 @@ pub async fn scan_folder(
     let mut processed = 0usize;
     let mut error_count = 0usize;
     let mut last_error = String::new();
+    let mut skipped_files: Vec<String> = Vec::new();
+
+    // Seed skipped list from any previously saved progress when resuming so
+    // the final summary still surfaces earlier failures.
+    if resume.unwrap_or(false) {
+        let conn = get_db_connection(&app)?;
+        if let Ok(Some(prev)) = database::get_scan_progress(&conn, &folder_path) {
+            skipped_files = prev.skipped_files;
+        }
+    }
+
+    // Persist initial progress so resume is possible even before the first file finishes.
+    {
+        let conn = get_db_connection(&app)?;
+        let _ = database::upsert_scan_progress(
+            &conn,
+            &folder_path,
+            0,
+            new_file_count,
+            &skipped_files,
+            "in_progress",
+        );
+    }
 
     // Process files in batches for progress reporting
     for (file_idx, path) in files_to_scan.iter().enumerate() {
@@ -799,6 +862,7 @@ pub async fn scan_folder(
                 log::warn!("Skipping {}: {e}", path.display());
                 error_count += 1;
                 last_error = e;
+                skipped_files.push(path.to_string_lossy().to_string());
                 continue;
             }
         };
@@ -819,18 +883,28 @@ pub async fn scan_folder(
         );
         tokio::task::yield_now().await;
 
-        // Run local inference with retry
-        let detected = {
+        // Run local inference with retry. A single failing file must not abort the whole scan.
+        let detected_result: Result<Vec<inference::DetectedFace>, String> = {
             let model_state = app.state::<ModelState>();
             let mut guard = model_state
                 .0
                 .lock()
                 .map_err(|e| format!("Model lock poisoned: {e}"))?;
-            let models = guard
-                .as_mut()
-                .ok_or("Models not loaded. Please download models first.")?;
+            match guard.as_mut() {
+                Some(models) => retry_inference(models, &image_bytes, threshold),
+                None => Err("Models not loaded. Please download models first.".to_string()),
+            }
+        };
 
-            retry_inference(models, &image_bytes, threshold)?
+        let detected = match detected_result {
+            Ok(faces) => faces,
+            Err(e) => {
+                log::warn!("Inference failed for {}: {e}", path.display());
+                error_count += 1;
+                last_error = e;
+                skipped_files.push(path.to_string_lossy().to_string());
+                continue;
+            }
         };
 
         log::info!(
@@ -919,6 +993,19 @@ pub async fn scan_folder(
         }
 
         processed += 1;
+
+        // Checkpoint every 100 files so a crash can be resumed without losing progress.
+        if processed % 100 == 0 {
+            let conn = get_db_connection(&app)?;
+            let _ = database::upsert_scan_progress(
+                &conn,
+                &folder_path,
+                file_idx + 1,
+                new_file_count,
+                &skipped_files,
+                "in_progress",
+            );
+        }
     }
 
     // Load all faces (newly scanned + previously cached) and update scan totals
@@ -974,7 +1061,31 @@ pub async fn scan_folder(
         total_faces,
         faces: cached_faces,
         no_face_files,
+        processed_count: processed,
+        skipped_files: skipped_files.clone(),
     };
+
+    // Mark scan as completed and emit summary so the UI can show it.
+    {
+        let conn = get_db_connection(&app)?;
+        let _ = database::upsert_scan_progress(
+            &conn,
+            &folder_path,
+            files_to_scan.len(),
+            new_file_count,
+            &skipped_files,
+            "completed",
+        );
+    }
+    let _ = app.emit(
+        "scan-summary",
+        ScanSummary {
+            folder_path: folder_path.clone(),
+            total_files,
+            processed_count: processed,
+            skipped_files,
+        },
+    );
 
     Ok(result)
 }

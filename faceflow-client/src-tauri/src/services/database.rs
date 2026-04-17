@@ -63,6 +63,16 @@ CREATE INDEX IF NOT EXISTS idx_photo_tags_file ON photo_tags(file_path);
 CREATE INDEX IF NOT EXISTS idx_photo_meta_rating ON photo_metadata(rating);
 CREATE INDEX IF NOT EXISTS idx_photo_meta_label ON photo_metadata(color_label);
 CREATE INDEX IF NOT EXISTS idx_photo_meta_pick ON photo_metadata(pick_status);
+
+CREATE TABLE IF NOT EXISTS scan_progress (
+    folder_path          TEXT PRIMARY KEY,
+    last_processed_index INTEGER NOT NULL DEFAULT 0,
+    total_files          INTEGER NOT NULL DEFAULT 0,
+    skipped_files        TEXT    NOT NULL DEFAULT '[]',
+    status               TEXT    NOT NULL DEFAULT 'in_progress',
+    started_at           TEXT    NOT NULL DEFAULT (datetime('now')),
+    updated_at           TEXT    NOT NULL DEFAULT (datetime('now'))
+);
 ";
 
 /// Open (or create) the database at the given path and apply the schema.
@@ -307,7 +317,10 @@ pub struct PhotoMetaRow {
     pub closed_eyes: bool,
 }
 
-pub fn get_photo_metadata(conn: &Connection, file_path: &str) -> Result<Option<PhotoMetaRow>, String> {
+pub fn get_photo_metadata(
+    conn: &Connection,
+    file_path: &str,
+) -> Result<Option<PhotoMetaRow>, String> {
     conn.query_row(
         "SELECT file_path, rating, color_label, pick_status, quality_score, blur_score, closed_eyes FROM photo_metadata WHERE file_path = ?1",
         params![file_path],
@@ -327,28 +340,42 @@ pub fn get_photo_metadata(conn: &Connection, file_path: &str) -> Result<Option<P
     .map_err(|e| format!("Failed to get photo metadata: {e}"))
 }
 
-pub fn get_all_photo_metadata(conn: &Connection, file_paths: &[String]) -> Result<Vec<PhotoMetaRow>, String> {
+pub fn get_all_photo_metadata(
+    conn: &Connection,
+    file_paths: &[String],
+) -> Result<Vec<PhotoMetaRow>, String> {
     if file_paths.is_empty() {
         return Ok(Vec::new());
     }
-    let placeholders: Vec<String> = file_paths.iter().enumerate().map(|(i, _)| format!("?{}", i + 1)).collect();
+    let placeholders: Vec<String> = file_paths
+        .iter()
+        .enumerate()
+        .map(|(i, _)| format!("?{}", i + 1))
+        .collect();
     let sql = format!(
         "SELECT file_path, rating, color_label, pick_status, quality_score, blur_score, closed_eyes FROM photo_metadata WHERE file_path IN ({})",
         placeholders.join(",")
     );
-    let mut stmt = conn.prepare(&sql).map_err(|e| format!("Failed to prepare metadata query: {e}"))?;
-    let params: Vec<&dyn rusqlite::types::ToSql> = file_paths.iter().map(|s| s as &dyn rusqlite::types::ToSql).collect();
-    let rows = stmt.query_map(params.as_slice(), |row| {
-        Ok(PhotoMetaRow {
-            file_path: row.get(0)?,
-            rating: row.get(1)?,
-            color_label: row.get(2)?,
-            pick_status: row.get(3)?,
-            quality_score: row.get(4)?,
-            blur_score: row.get(5)?,
-            closed_eyes: row.get::<_, i32>(6)? != 0,
+    let mut stmt = conn
+        .prepare(&sql)
+        .map_err(|e| format!("Failed to prepare metadata query: {e}"))?;
+    let params: Vec<&dyn rusqlite::types::ToSql> = file_paths
+        .iter()
+        .map(|s| s as &dyn rusqlite::types::ToSql)
+        .collect();
+    let rows = stmt
+        .query_map(params.as_slice(), |row| {
+            Ok(PhotoMetaRow {
+                file_path: row.get(0)?,
+                rating: row.get(1)?,
+                color_label: row.get(2)?,
+                pick_status: row.get(3)?,
+                quality_score: row.get(4)?,
+                blur_score: row.get(5)?,
+                closed_eyes: row.get::<_, i32>(6)? != 0,
+            })
         })
-    }).map_err(|e| format!("Failed to query metadata: {e}"))?;
+        .map_err(|e| format!("Failed to query metadata: {e}"))?;
 
     let mut result = Vec::new();
     for row in rows {
@@ -365,12 +392,13 @@ pub fn create_tag(conn: &Connection, name: &str) -> Result<i64, String> {
         params![name],
     )
     .map_err(|e| format!("Failed to create tag: {e}"))?;
-    let id = conn.query_row(
-        "SELECT id FROM tags WHERE name = ?1",
-        params![name],
-        |row| row.get::<_, i64>(0),
-    )
-    .map_err(|e| format!("Failed to get tag id: {e}"))?;
+    let id = conn
+        .query_row(
+            "SELECT id FROM tags WHERE name = ?1",
+            params![name],
+            |row| row.get::<_, i64>(0),
+        )
+        .map_err(|e| format!("Failed to get tag id: {e}"))?;
     Ok(id)
 }
 
@@ -381,9 +409,13 @@ pub fn delete_tag(conn: &Connection, tag_id: i64) -> Result<(), String> {
 }
 
 pub fn list_tags(conn: &Connection) -> Result<Vec<(i64, String)>, String> {
-    let mut stmt = conn.prepare("SELECT id, name FROM tags ORDER BY name")
+    let mut stmt = conn
+        .prepare("SELECT id, name FROM tags ORDER BY name")
         .map_err(|e| format!("Failed to prepare tags query: {e}"))?;
-    let rows = stmt.query_map([], |row| Ok((row.get::<_, i64>(0)?, row.get::<_, String>(1)?)))
+    let rows = stmt
+        .query_map([], |row| {
+            Ok((row.get::<_, i64>(0)?, row.get::<_, String>(1)?))
+        })
         .map_err(|e| format!("Failed to query tags: {e}"))?;
     let mut result = Vec::new();
     for row in rows {
@@ -410,15 +442,101 @@ pub fn remove_photo_tag(conn: &Connection, file_path: &str, tag_id: i64) -> Resu
     Ok(())
 }
 
-pub fn get_tags_for_photo(conn: &Connection, file_path: &str) -> Result<Vec<(i64, String)>, String> {
+pub fn get_tags_for_photo(
+    conn: &Connection,
+    file_path: &str,
+) -> Result<Vec<(i64, String)>, String> {
     let mut stmt = conn.prepare(
         "SELECT t.id, t.name FROM tags t JOIN photo_tags pt ON t.id = pt.tag_id WHERE pt.file_path = ?1 ORDER BY t.name"
     ).map_err(|e| format!("Failed to prepare photo tags query: {e}"))?;
-    let rows = stmt.query_map(params![file_path], |row| Ok((row.get::<_, i64>(0)?, row.get::<_, String>(1)?)))
+    let rows = stmt
+        .query_map(params![file_path], |row| {
+            Ok((row.get::<_, i64>(0)?, row.get::<_, String>(1)?))
+        })
         .map_err(|e| format!("Failed to query photo tags: {e}"))?;
     let mut result = Vec::new();
     for row in rows {
         result.push(row.map_err(|e| format!("Row error: {e}"))?);
     }
     Ok(result)
+}
+
+// ---- Scan progress (resume / error recovery) ----
+
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+pub struct ScanProgressRow {
+    pub folder_path: String,
+    pub last_processed_index: i64,
+    pub total_files: i64,
+    pub skipped_files: Vec<String>,
+    pub status: String,
+    pub started_at: String,
+    pub updated_at: String,
+}
+
+pub fn get_scan_progress(
+    conn: &Connection,
+    folder_path: &str,
+) -> Result<Option<ScanProgressRow>, String> {
+    conn.query_row(
+        "SELECT folder_path, last_processed_index, total_files, skipped_files, status, started_at, updated_at
+         FROM scan_progress WHERE folder_path = ?1",
+        params![folder_path],
+        |row| {
+            let skipped_json: String = row.get(3)?;
+            let skipped: Vec<String> = serde_json::from_str(&skipped_json).unwrap_or_default();
+            Ok(ScanProgressRow {
+                folder_path: row.get(0)?,
+                last_processed_index: row.get(1)?,
+                total_files: row.get(2)?,
+                skipped_files: skipped,
+                status: row.get(4)?,
+                started_at: row.get(5)?,
+                updated_at: row.get(6)?,
+            })
+        },
+    )
+    .optional()
+    .map_err(|e| format!("Failed to get scan progress: {e}"))
+}
+
+pub fn upsert_scan_progress(
+    conn: &Connection,
+    folder_path: &str,
+    last_processed_index: usize,
+    total_files: usize,
+    skipped_files: &[String],
+    status: &str,
+) -> Result<(), String> {
+    let skipped_json = serde_json::to_string(skipped_files)
+        .map_err(|e| format!("Failed to serialize skipped list: {e}"))?;
+    conn.execute(
+        "INSERT INTO scan_progress
+            (folder_path, last_processed_index, total_files, skipped_files, status, started_at, updated_at)
+         VALUES (?1, ?2, ?3, ?4, ?5, datetime('now'), datetime('now'))
+         ON CONFLICT(folder_path) DO UPDATE SET
+            last_processed_index = excluded.last_processed_index,
+            total_files = excluded.total_files,
+            skipped_files = excluded.skipped_files,
+            status = excluded.status,
+            updated_at = datetime('now')",
+        params![
+            folder_path,
+            last_processed_index as i64,
+            total_files as i64,
+            skipped_json,
+            status,
+        ],
+    )
+    .map_err(|e| format!("Failed to upsert scan progress: {e}"))?;
+    Ok(())
+}
+
+pub fn clear_scan_progress(conn: &Connection, folder_path: &str) -> Result<(), String> {
+    conn.execute(
+        "DELETE FROM scan_progress WHERE folder_path = ?1",
+        params![folder_path],
+    )
+    .map_err(|e| format!("Failed to clear scan progress: {e}"))?;
+    Ok(())
 }

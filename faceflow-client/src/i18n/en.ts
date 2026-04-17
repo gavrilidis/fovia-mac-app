@@ -277,6 +277,16 @@ export const en = {
   badge_ai_tagged: "AI tags applied",
   xmp_export_done: "XMP exported: {count}",
   xmp_export_failed: "XMP export failed",
+  scan_resume_title: "Resume previous scan?",
+  scan_resume_message: "A previous scan of this folder was interrupted at {processed} of {total} files. Do you want to continue from where it stopped, or start over?",
+  scan_resume_continue: "Continue",
+  scan_resume_restart: "Start Over",
+  scan_summary_title: "Scan complete",
+  scan_summary_processed: "Processed",
+  scan_summary_skipped: "Skipped",
+  scan_summary_show_list: "Show skipped files",
+  scan_summary_hide_list: "Hide skipped files",
+  scan_summary_close: "Close",
 } as const;
 
 export type TranslationKey = keyof typeof en;

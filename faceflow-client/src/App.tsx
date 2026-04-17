@@ -8,8 +8,10 @@ import { DropZone } from "./components/DropZone";
 import { ProgressView } from "./components/ProgressView";
 import { GalleryView } from "./components/GalleryView";
 import { ActivationView } from "./components/ActivationView";
+import { ResumeDialog } from "./components/ResumeDialog";
+import { ScanSummaryDialog } from "./components/ScanSummaryDialog";
 import { groupFacesByIdentity } from "./services/faceGrouping";
-import type { AppView, DownloadProgress, FaceGroup, ScanProgress, ScanResult, ModelStatus } from "./types";
+import type { AppView, DownloadProgress, FaceGroup, ScanProgress, ScanProgressRow, ScanResult, ScanSummary, ModelStatus } from "./types";
 
 function App() {
   const [view, setView] = useState<AppView>("loading");
@@ -35,6 +37,12 @@ function App() {
   const [faceGroups, setFaceGroups] = useState<FaceGroup[]>([]);
   const [noFaceFiles, setNoFaceFiles] = useState<string[]>([]);
   const [error, setError] = useState<string | null>(null);
+  const [resumePrompt, setResumePrompt] = useState<{
+    folderPath: string;
+    detectionThreshold: number;
+    row: ScanProgressRow;
+  } | null>(null);
+  const [scanSummary, setScanSummary] = useState<ScanSummary | null>(null);
   const [faceMatchThreshold] = useState<number>(() => {
     const value = localStorage.getItem("faceflow-face-threshold");
     const parsed = value ? Number(value) : 0.38;
@@ -104,27 +112,85 @@ function App() {
     init();
   }, [handleRetryModels]);
 
-  const handleFolderSelected = useCallback(async (folderPath: string, detectionThreshold: number) => {
-    setView("progress");
-    setError(null);
-    setProgress({ total_files: 0, processed: 0, current_file: "Starting...", faces_found: 0, errors: 0, last_error: "", phase: "scanning", files_read: 0 });
-
-    try {
-      const result = await invoke<ScanResult>("scan_folder", {
-        folderPath,
-        detectionThreshold,
+  const runScan = useCallback(
+    async (folderPath: string, detectionThreshold: number, resume: boolean) => {
+      setView("progress");
+      setError(null);
+      setProgress({
+        total_files: 0,
+        processed: 0,
+        current_file: "Starting...",
+        faces_found: 0,
+        errors: 0,
+        last_error: "",
+        phase: "scanning",
+        files_read: 0,
       });
 
-      const groups = await groupFacesByIdentity(result.faces, faceMatchThreshold);
-      setFaceGroups(groups);
-      setNoFaceFiles(result.no_face_files);
-      setView("gallery");
-    } catch (err) {
-      const message = typeof err === "string" ? err : "An unexpected error occurred";
-      setError(message);
-      setView("dropzone");
+      try {
+        const result = await invoke<ScanResult>("scan_folder", {
+          folderPath,
+          detectionThreshold,
+          resume,
+        });
+
+        const groups = await groupFacesByIdentity(result.faces, faceMatchThreshold);
+        setFaceGroups(groups);
+        setNoFaceFiles(result.no_face_files);
+        if (result.skipped_files.length > 0 || result.processed_count < result.total_files) {
+          setScanSummary({
+            folder_path: folderPath,
+            total_files: result.total_files,
+            processed_count: result.processed_count,
+            skipped_files: result.skipped_files,
+          });
+        }
+        setView("gallery");
+      } catch (err) {
+        const message = typeof err === "string" ? err : "An unexpected error occurred";
+        setError(message);
+        setView("dropzone");
+      }
+    },
+    [faceMatchThreshold],
+  );
+
+  const handleFolderSelected = useCallback(
+    async (folderPath: string, detectionThreshold: number) => {
+      try {
+        const prior = await invoke<ScanProgressRow | null>("get_scan_progress", {
+          folderPath,
+        });
+        if (prior && prior.status === "in_progress" && prior.last_processed_index > 0) {
+          setResumePrompt({ folderPath, detectionThreshold, row: prior });
+          return;
+        }
+      } catch {
+        // Non-critical — proceed with a fresh scan.
+      }
+      await runScan(folderPath, detectionThreshold, false);
+    },
+    [runScan],
+  );
+
+  const handleResumeContinue = useCallback(async () => {
+    if (!resumePrompt) return;
+    const { folderPath, detectionThreshold } = resumePrompt;
+    setResumePrompt(null);
+    await runScan(folderPath, detectionThreshold, true);
+  }, [resumePrompt, runScan]);
+
+  const handleResumeRestart = useCallback(async () => {
+    if (!resumePrompt) return;
+    const { folderPath, detectionThreshold } = resumePrompt;
+    setResumePrompt(null);
+    try {
+      await invoke("clear_scan_progress", { folderPath });
+    } catch {
+      // Ignore — fresh scan will overwrite.
     }
-  }, [faceMatchThreshold]);
+    await runScan(folderPath, detectionThreshold, false);
+  }, [resumePrompt, runScan]);
 
   useEffect(() => {
     const unlisten = listen<ScanProgress>("scan-progress", (event) => {
@@ -396,6 +462,26 @@ function App() {
       {view === "dropzone" && <DropZone onFolderSelected={handleFolderSelected} />}
       {view === "progress" && <ProgressView progress={progress} />}
       {view === "gallery" && <GalleryView groups={faceGroups} noFaceFiles={noFaceFiles} onReset={handleReset} />}
+
+      {resumePrompt && (
+        <ResumeDialog
+          folderPath={resumePrompt.folderPath}
+          lastProcessedIndex={resumePrompt.row.last_processed_index}
+          totalFiles={resumePrompt.row.total_files}
+          onResume={handleResumeContinue}
+          onRestart={handleResumeRestart}
+          onCancel={() => setResumePrompt(null)}
+        />
+      )}
+
+      {scanSummary && (
+        <ScanSummaryDialog
+          totalFiles={scanSummary.total_files}
+          processedCount={scanSummary.processed_count}
+          skippedFiles={scanSummary.skipped_files}
+          onClose={() => setScanSummary(null)}
+        />
+      )}
     </div>
   );
 }

@@ -36,6 +36,7 @@ pub fn write_xmp_sidecar(
     pick_status: &str,
 ) -> Result<(), String> {
     write_xmp_sidecar_with_keywords(image_path, None, rating, color_label, pick_status, &[])
+        .map(|_| ())
 }
 
 pub fn write_xmp_sidecar_with_keywords(
@@ -58,8 +59,12 @@ pub fn write_xmp_sidecar_with_keywords(
     };
 
     if let Some(parent) = xmp_path.parent() {
-        std::fs::create_dir_all(parent)
-            .map_err(|e| format!("Failed to create XMP output directory {}: {e}", parent.display()))?;
+        std::fs::create_dir_all(parent).map_err(|e| {
+            format!(
+                "Failed to create XMP output directory {}: {e}",
+                parent.display()
+            )
+        })?;
     }
 
     let label = xmp_label(color_label);

@@ -22,6 +22,25 @@ export interface ScanResult {
   total_files: number;
   total_faces: number;
   no_face_files: string[];
+  processed_count: number;
+  skipped_files: string[];
+}
+
+export interface ScanProgressRow {
+  folder_path: string;
+  last_processed_index: number;
+  total_files: number;
+  skipped_files: string[];
+  status: string;
+  started_at: string;
+  updated_at: string;
+}
+
+export interface ScanSummary {
+  folder_path: string;
+  total_files: number;
+  processed_count: number;
+  skipped_files: string[];
 }
 
 export interface ScanProgress {

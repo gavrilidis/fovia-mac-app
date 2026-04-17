@@ -67,6 +67,8 @@ pub fn run() {
             commands::scan::export_photos,
             commands::scan::export_xmp_sidecars,
             commands::scan::auto_group_by_event,
+            commands::scan::get_scan_progress,
+            commands::scan::clear_scan_progress,
             services::secrets::save_secret,
             services::secrets::get_secret,
             services::secrets::delete_secret,
