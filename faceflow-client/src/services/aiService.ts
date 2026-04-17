@@ -3,7 +3,7 @@ import { invoke } from "@tauri-apps/api/core";
 const API_PROVIDER_STORAGE = "faceflow-ai-provider";
 const API_MODEL_STORAGE = "faceflow-ai-model";
 
-export type AIProvider = "openai" | "anthropic" | "gemini" | "deepseek" | "qwen" | "grok";
+export type AIProvider = "openai" | "anthropic" | "gemini" | "qwen" | "grok";
 
 export interface AIProviderConfig {
   id: AIProvider;
@@ -36,25 +36,18 @@ export const AI_PROVIDERS: AIProviderConfig[] = [
     models: ["gemini-2.5-pro", "gemini-2.5-flash", "gemini-2.0-flash"],
   },
   {
-    id: "deepseek",
-    name: "DeepSeek",
-    baseUrl: "https://api.deepseek.com/v1",
-    defaultModel: "deepseek-chat",
-    models: ["deepseek-chat", "deepseek-reasoner"],
-  },
-  {
     id: "qwen",
     name: "Qwen",
     baseUrl: "https://dashscope-intl.aliyuncs.com/compatible-mode/v1",
-    defaultModel: "qwen-plus",
-    models: ["qwen-plus", "qwen-max", "qwen-turbo"],
+    defaultModel: "qwen-vl-plus",
+    models: ["qwen-vl-max", "qwen-vl-plus"],
   },
   {
     id: "grok",
     name: "Grok",
     baseUrl: "https://api.x.ai/v1",
-    defaultModel: "grok-3-mini",
-    models: ["grok-3", "grok-3-mini"],
+    defaultModel: "grok-2-vision-1212",
+    models: ["grok-2-vision-1212"],
   },
 ];
 
@@ -62,7 +55,6 @@ const API_KEY_NAMES: Record<AIProvider, string> = {
   openai: "api_key_openai",
   anthropic: "api_key_anthropic",
   gemini: "api_key_gemini",
-  deepseek: "api_key_deepseek",
   qwen: "api_key_qwen",
   grok: "api_key_grok",
 };
