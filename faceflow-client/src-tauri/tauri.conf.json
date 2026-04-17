@@ -43,7 +43,7 @@
   },
   "plugins": {
     "updater": {
-      "pubkey": "dW50cnVzdGVkIGNvbW1lbnQ6IG1pbmlzaWduIHB1YmxpYyBrZXk6IEVGODgxOEY0RkU4M0QyMEEKUldRSzBvUCs5QmlJN3dtUVR0M2EvQXJBYndzVjlLdzMvNGUrT2t1aXZQTDBxeTJ4b21naEZSWWkK",
+      "pubkey": "dW50cnVzdGVkIGNvbW1lbnQ6IG1pbmlzaWduIHB1YmxpYyBrZXk6IDdCMTA3RUU0REZDQkQxMkQKUldRdDBjdmY1SDRRZTVZMEpJSStlVzR1YkVlNCswQndoSGhxOXg5YVpFYm9SZ0tlMXloaS9HM3IK",
       "endpoints": [
         "https://github.com/gavrilidis/faceflow/releases/latest/download/latest.json"
       ]
