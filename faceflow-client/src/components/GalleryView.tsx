@@ -12,7 +12,7 @@ import { SettingsPanel } from "./SettingsPanel";
 import { usePhotoMeta } from "../hooks/usePhotoMeta";
 import { useKeyboardShortcuts } from "../hooks/useKeyboardShortcuts";
 import { useI18n } from "../i18n";
-import { isAiConfigured, analyzePhoto } from "../services/aiService";
+import { isAiConfigured, analyzePhoto, getAiProvider } from "../services/aiService";
 
 interface GalleryViewProps {
   groups: FaceGroup[];
@@ -44,6 +44,7 @@ export const GalleryView: React.FC<GalleryViewProps> = ({ groups, noFaceFiles, o
   // Search & AI
   const [searchQuery, setSearchQuery] = React.useState("");
   const [aiAnalyzing, setAiAnalyzing] = React.useState(false);
+  const [aiConfigured, setAiConfigured] = React.useState(false);
   const [aiStatus, setAiStatus] = React.useState<string | null>(null);
   const [aiTags, setAiTags] = React.useState<Map<string, string[]>>(() => {
     // Restore cached AI tags from localStorage
@@ -133,6 +134,18 @@ export const GalleryView: React.FC<GalleryViewProps> = ({ groups, noFaceFiles, o
     run();
     return () => { cancelled = true; };
   }, [eventView, eventGap, allFilePaths]);
+
+  useEffect(() => {
+    let cancelled = false;
+    const load = async () => {
+      const configured = await isAiConfigured(getAiProvider());
+      if (!cancelled) setAiConfigured(configured);
+    };
+    load();
+    return () => {
+      cancelled = true;
+    };
+  }, [showSettings]);
 
   // Filter photos based on metadata and search query
   const filteredPhotos = useMemo(() => {
@@ -270,7 +283,7 @@ export const GalleryView: React.FC<GalleryViewProps> = ({ groups, noFaceFiles, o
 
   // AI analyze selected photos
   const handleAiAnalyze = useCallback(async () => {
-    if (!isAiConfigured()) {
+    if (!(await isAiConfigured(getAiProvider()))) {
       setAiStatus("API key not configured — open Settings to add one");
       setTimeout(() => setAiStatus(null), 4000);
       return;
@@ -496,7 +509,7 @@ export const GalleryView: React.FC<GalleryViewProps> = ({ groups, noFaceFiles, o
         onSearchChange={setSearchQuery}
         onAiAnalyze={handleAiAnalyze}
         aiAnalyzing={aiAnalyzing}
-        aiConfigured={isAiConfigured()}
+        aiConfigured={aiConfigured}
       />
 
       {/* Content area */}

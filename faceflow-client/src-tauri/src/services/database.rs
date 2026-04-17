@@ -1,5 +1,7 @@
 use std::path::Path;
 
+use r2d2::Pool;
+use r2d2_sqlite::SqliteConnectionManager;
 use rusqlite::{params, Connection, OptionalExtension};
 
 const SCHEMA: &str = "
@@ -64,21 +66,23 @@ CREATE INDEX IF NOT EXISTS idx_photo_meta_pick ON photo_metadata(pick_status);
 ";
 
 /// Open (or create) the database at the given path and apply the schema.
-pub fn open_database(db_path: &Path) -> Result<Connection, String> {
+pub type DbPool = Pool<SqliteConnectionManager>;
+
+pub fn open_database(db_path: &Path) -> Result<DbPool, String> {
     if let Some(parent) = db_path.parent() {
         std::fs::create_dir_all(parent)
             .map_err(|e| format!("Failed to create database directory: {e}"))?;
     }
 
-    let conn = Connection::open(db_path).map_err(|e| format!("Failed to open database: {e}"))?;
-
-    conn.execute_batch("PRAGMA journal_mode=WAL; PRAGMA foreign_keys=ON;")
-        .map_err(|e| format!("Failed to set pragmas: {e}"))?;
-
-    conn.execute_batch(SCHEMA)
-        .map_err(|e| format!("Failed to create schema: {e}"))?;
-
-    Ok(conn)
+    let manager = SqliteConnectionManager::file(db_path).with_init(|conn| {
+        conn.execute_batch("PRAGMA journal_mode=WAL; PRAGMA foreign_keys=ON;")?;
+        conn.execute_batch(SCHEMA)?;
+        Ok(())
+    });
+    Pool::builder()
+        .max_size(4)
+        .build(manager)
+        .map_err(|e| format!("Failed to build database pool: {e}"))
 }
 
 // ---- Scan records ----

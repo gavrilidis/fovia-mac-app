@@ -3,6 +3,8 @@ use std::path::PathBuf;
 use std::sync::Mutex;
 
 use base64::{engine::general_purpose::STANDARD as BASE64, Engine};
+use r2d2::PooledConnection;
+use r2d2_sqlite::SqliteConnectionManager;
 use serde::{Deserialize, Serialize};
 use sysinfo::Disks;
 use tauri::{AppHandle, Emitter, Manager};
@@ -14,8 +16,16 @@ const MAX_RETRIES: u32 = 3;
 
 // ---- Shared state managed by Tauri ----
 
-pub struct DbState(pub Mutex<rusqlite::Connection>);
+pub struct DbState(pub database::DbPool);
 pub struct ModelState(pub Mutex<Option<FaceModels>>);
+
+fn get_db_connection(
+    app: &AppHandle,
+) -> Result<PooledConnection<SqliteConnectionManager>, String> {
+    let db = app.state::<DbState>();
+    db.0.get()
+        .map_err(|e| format!("Failed to get DB connection from pool: {e}"))
+}
 
 // ---- Data types (serialized to frontend) ----
 
@@ -232,7 +242,7 @@ pub async fn check_activation(app: AppHandle) -> Result<bool, String> {
             match activation::background_check(&key, &machine_id).await {
                 Ok(true) => {
                     // Online check passed — update local timestamp
-                    activation::save_last_check(&app_data).ok();
+                    activation::save_last_check(&app_data, &machine_id).ok();
                     log::info!("Online license check passed");
                 }
                 Ok(false) => {
@@ -244,7 +254,7 @@ pub async fn check_activation(app: AppHandle) -> Result<bool, String> {
                 Err(e) => {
                     // Network error — fall back to grace period
                     log::info!("Online check failed ({}), checking grace period", e);
-                    if !activation::is_grace_period_valid(&app_data) {
+                    if !activation::is_grace_period_valid(&app_data, &machine_id) {
                         log::warn!("Grace period expired, license invalid");
                         return Ok(false);
                     }
@@ -254,7 +264,7 @@ pub async fn check_activation(app: AppHandle) -> Result<bool, String> {
         }
         Err(e) => {
             log::warn!("Could not get machine ID: {}, checking grace period", e);
-            if !activation::is_grace_period_valid(&app_data) {
+            if !activation::is_grace_period_valid(&app_data, &machine_id) {
                 return Ok(false);
             }
         }
@@ -290,7 +300,7 @@ pub async fn activate_app(app: AppHandle, serial_key: String) -> Result<bool, St
         .app_data_dir()
         .map_err(|e| format!("Failed to get app data dir: {e}"))?;
     activation::save_license(&app_data, &serial_key)?;
-    activation::save_last_check(&app_data).ok();
+    activation::save_last_check(&app_data, &machine_id).ok();
     log::info!("App activated successfully (machine: {})", machine_id);
     Ok(true)
 }
@@ -586,8 +596,7 @@ pub async fn download_exiftool(app: AppHandle) -> Result<(), String> {
 /// Load previously saved faces for a folder from the database.
 #[tauri::command]
 pub fn load_saved_faces(app: AppHandle, folder_path: String) -> Result<ScanResult, String> {
-    let db = app.state::<DbState>();
-    let conn = db.0.lock().map_err(|e| format!("DB lock poisoned: {e}"))?;
+    let conn = get_db_connection(&app)?;
 
     let rows = database::load_faces_for_folder(&conn, &folder_path)?;
 
@@ -655,8 +664,7 @@ pub async fn scan_folder(
 
     // Determine which files need scanning (incremental)
     let files_to_scan: Vec<PathBuf> = {
-        let db = app.state::<DbState>();
-        let conn = db.0.lock().map_err(|e| format!("DB lock poisoned: {e}"))?;
+        let conn = get_db_connection(&app)?;
 
         image_files
             .iter()
@@ -683,8 +691,7 @@ pub async fn scan_folder(
 
     // Create scan record BEFORE inserting faces (FK constraint)
     {
-        let db = app.state::<DbState>();
-        let conn = db.0.lock().map_err(|e| format!("DB lock poisoned: {e}"))?;
+        let conn = get_db_connection(&app)?;
         database::insert_scan(&conn, &scan_id, &folder_path, total_files, 0)?;
     }
 
@@ -807,8 +814,7 @@ pub async fn scan_folder(
 
         // Delete old face data for this file before inserting new results
         {
-            let db = app.state::<DbState>();
-            let conn = db.0.lock().map_err(|e| format!("DB lock poisoned: {e}"))?;
+            let conn = get_db_connection(&app)?;
             database::delete_faces_for_file(&conn, &file_path_str)?;
         }
 
@@ -836,8 +842,7 @@ pub async fn scan_folder(
 
             // Save to database
             {
-                let db = app.state::<DbState>();
-                let conn = db.0.lock().map_err(|e| format!("DB lock poisoned: {e}"))?;
+                let conn = get_db_connection(&app)?;
 
                 database::insert_face(
                     &conn,
@@ -866,8 +871,7 @@ pub async fn scan_folder(
 
         // Mark file as scanned
         {
-            let db = app.state::<DbState>();
-            let conn = db.0.lock().map_err(|e| format!("DB lock poisoned: {e}"))?;
+            let conn = get_db_connection(&app)?;
 
             let file_hash = format!("{}:t{:.2}", fast_file_hash(path), threshold);
             database::insert_scanned_file(&conn, &file_path_str, &scan_id, &file_hash)?;
@@ -880,8 +884,7 @@ pub async fn scan_folder(
                 .iter()
                 .any(|f| is_eyes_closed(&image_bytes, &f.landmarks));
 
-            let db = app.state::<DbState>();
-            let conn = db.0.lock().map_err(|e| format!("DB lock poisoned: {e}"))?;
+            let conn = get_db_connection(&app)?;
             database::set_quality_metrics(&conn, &file_path_str, blur, blur, has_closed_eyes)?;
         }
 
@@ -890,8 +893,7 @@ pub async fn scan_folder(
 
     // Load all faces (newly scanned + previously cached) and update scan totals
     let cached_faces = {
-        let db = app.state::<DbState>();
-        let conn = db.0.lock().map_err(|e| format!("DB lock poisoned: {e}"))?;
+        let conn = get_db_connection(&app)?;
 
         // Update scan record with final face count
         database::update_scan_totals(&conn, &scan_id, total_files, all_faces.len())?;
@@ -955,8 +957,7 @@ pub fn set_photo_rating(
     file_paths: Vec<String>,
     rating: i32,
 ) -> Result<(), String> {
-    let db = app.state::<DbState>();
-    let conn = db.0.lock().map_err(|e| format!("DB lock poisoned: {e}"))?;
+    let conn = get_db_connection(&app)?;
     for fp in &file_paths {
         database::set_rating(&conn, fp, rating)?;
         // Write XMP sidecar with current metadata
@@ -980,8 +981,7 @@ pub fn set_photo_color_label(
     if !valid.contains(&label.as_str()) {
         return Err(format!("Invalid color label: {label}"));
     }
-    let db = app.state::<DbState>();
-    let conn = db.0.lock().map_err(|e| format!("DB lock poisoned: {e}"))?;
+    let conn = get_db_connection(&app)?;
     for fp in &file_paths {
         database::set_color_label(&conn, fp, &label)?;
         let meta = database::get_photo_metadata(&conn, fp)?;
@@ -1004,8 +1004,7 @@ pub fn set_photo_pick_status(
     if !valid.contains(&status.as_str()) {
         return Err(format!("Invalid pick status: {status}"));
     }
-    let db = app.state::<DbState>();
-    let conn = db.0.lock().map_err(|e| format!("DB lock poisoned: {e}"))?;
+    let conn = get_db_connection(&app)?;
     for fp in &file_paths {
         database::set_pick_status(&conn, fp, &status)?;
         let meta = database::get_photo_metadata(&conn, fp)?;
@@ -1023,8 +1022,7 @@ pub fn get_photo_metadata(
     app: AppHandle,
     file_paths: Vec<String>,
 ) -> Result<Vec<PhotoMeta>, String> {
-    let db = app.state::<DbState>();
-    let conn = db.0.lock().map_err(|e| format!("DB lock poisoned: {e}"))?;
+    let conn = get_db_connection(&app)?;
     let rows = database::get_all_photo_metadata(&conn, &file_paths)?;
     Ok(rows
         .into_iter()
@@ -1044,23 +1042,20 @@ pub fn get_photo_metadata(
 
 #[tauri::command]
 pub fn create_tag(app: AppHandle, name: String) -> Result<TagInfo, String> {
-    let db = app.state::<DbState>();
-    let conn = db.0.lock().map_err(|e| format!("DB lock poisoned: {e}"))?;
+    let conn = get_db_connection(&app)?;
     let id = database::create_tag(&conn, &name)?;
     Ok(TagInfo { id, name })
 }
 
 #[tauri::command]
 pub fn delete_tag(app: AppHandle, tag_id: i64) -> Result<(), String> {
-    let db = app.state::<DbState>();
-    let conn = db.0.lock().map_err(|e| format!("DB lock poisoned: {e}"))?;
+    let conn = get_db_connection(&app)?;
     database::delete_tag(&conn, tag_id)
 }
 
 #[tauri::command]
 pub fn list_tags(app: AppHandle) -> Result<Vec<TagInfo>, String> {
-    let db = app.state::<DbState>();
-    let conn = db.0.lock().map_err(|e| format!("DB lock poisoned: {e}"))?;
+    let conn = get_db_connection(&app)?;
     let tags = database::list_tags(&conn)?;
     Ok(tags
         .into_iter()
@@ -1070,8 +1065,7 @@ pub fn list_tags(app: AppHandle) -> Result<Vec<TagInfo>, String> {
 
 #[tauri::command]
 pub fn add_photo_tag(app: AppHandle, file_paths: Vec<String>, tag_id: i64) -> Result<(), String> {
-    let db = app.state::<DbState>();
-    let conn = db.0.lock().map_err(|e| format!("DB lock poisoned: {e}"))?;
+    let conn = get_db_connection(&app)?;
     for fp in &file_paths {
         database::add_photo_tag(&conn, fp, tag_id)?;
     }
@@ -1084,8 +1078,7 @@ pub fn remove_photo_tag(
     file_paths: Vec<String>,
     tag_id: i64,
 ) -> Result<(), String> {
-    let db = app.state::<DbState>();
-    let conn = db.0.lock().map_err(|e| format!("DB lock poisoned: {e}"))?;
+    let conn = get_db_connection(&app)?;
     for fp in &file_paths {
         database::remove_photo_tag(&conn, fp, tag_id)?;
     }
@@ -1094,8 +1087,7 @@ pub fn remove_photo_tag(
 
 #[tauri::command]
 pub fn get_photo_tags(app: AppHandle, file_path: String) -> Result<Vec<TagInfo>, String> {
-    let db = app.state::<DbState>();
-    let conn = db.0.lock().map_err(|e| format!("DB lock poisoned: {e}"))?;
+    let conn = get_db_connection(&app)?;
     let tags = database::get_tags_for_photo(&conn, &file_path)?;
     Ok(tags
         .into_iter()

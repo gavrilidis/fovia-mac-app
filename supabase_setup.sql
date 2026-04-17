@@ -10,9 +10,9 @@ CREATE TABLE activations (
 
 ALTER TABLE activations ENABLE ROW LEVEL SECURITY;
 
-CREATE POLICY "Allow insert" ON activations FOR INSERT WITH CHECK (true);
-CREATE POLICY "Allow select" ON activations FOR SELECT USING (true);
-CREATE POLICY "Allow update" ON activations FOR UPDATE USING (true);
+CREATE POLICY "Deny anon insert" ON activations FOR INSERT WITH CHECK (false);
+CREATE POLICY "Deny anon select" ON activations FOR SELECT USING (false);
+CREATE POLICY "Deny anon update" ON activations FOR UPDATE USING (false);
 
 -- Table to store all generated license keys (run this if not already created)
 CREATE TABLE IF NOT EXISTS license_keys (
@@ -24,5 +24,5 @@ CREATE TABLE IF NOT EXISTS license_keys (
 
 ALTER TABLE license_keys ENABLE ROW LEVEL SECURITY;
 
-CREATE POLICY "Allow select keys" ON license_keys FOR SELECT USING (true);
-CREATE POLICY "Allow insert keys" ON license_keys FOR INSERT WITH CHECK (true);
+CREATE POLICY "Deny anon select keys" ON license_keys FOR SELECT USING (false);
+CREATE POLICY "Deny anon insert keys" ON license_keys FOR INSERT WITH CHECK (false);

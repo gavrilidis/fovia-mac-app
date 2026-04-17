@@ -61,6 +61,22 @@ npm install
 npm run tauri dev
 ```
 
+### Activation secret for local/dev builds
+
+Set the secret via environment variable:
+
+```bash
+export FACEFLOW_SECRET=your_hex_secret
+```
+
+Or create a local file (do not commit):
+
+```bash
+echo "your_hex_secret" > faceflow-client/src-tauri/activation.secret
+```
+
+TODO: rotate previously committed secrets and clean repository history after beta (`git filter-repo` task outside this PR).
+
 ### Prerequisites (Development Only)
 
 - Rust 1.77+

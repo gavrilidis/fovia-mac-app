@@ -4,8 +4,6 @@ import { getCurrentWindow } from "@tauri-apps/api/window";
 import { open } from "@tauri-apps/plugin-dialog";
 import { FaceFlowLogo } from "./FaceFlowLogo";
 import { useI18n } from "../i18n";
-import { getAiApiKey, setAiApiKey as saveAiApiKey, getAiProvider, setAiProvider as saveAiProvider } from "../services/aiService";
-import type { AiProvider } from "../services/aiService";
 import type { VolumeInfo } from "../types";
 import type { Locale, Theme } from "../i18n";
 
@@ -30,8 +28,6 @@ export const DropZone: React.FC<DropZoneProps> = ({ onFolderSelected }) => {
   const [detectionThreshold, setDetectionThreshold] = useState(0.5);
   const [showSettings, setShowSettings] = useState(false);
   const [showFormats, setShowFormats] = useState(false);
-  const [aiApiKey, setAiApiKeyState] = useState(getAiApiKey);
-  const [aiProvider, setAiProviderState] = useState<AiProvider>(getAiProvider);
   const dragCounter = useRef(0);
 
   useEffect(() => {
@@ -204,37 +200,6 @@ export const DropZone: React.FC<DropZoneProps> = ({ onFolderSelected }) => {
               </div>
             </div>
 
-            {/* AI Integration */}
-            <div className="mt-4 border-t border-edge/30 pt-4">
-              <label className="mb-2 block text-[11px] font-semibold uppercase tracking-[0.18em] text-fg-muted/60">{t("ai_integration")}</label>
-              <div className="mb-3 flex gap-1.5 rounded-lg bg-surface/60 p-1">
-                {(["openai", "anthropic"] as AiProvider[]).map((opt) => (
-                  <button
-                    key={opt}
-                    onClick={() => { setAiProviderState(opt); saveAiProvider(opt); }}
-                    className={`flex-1 rounded-md px-3 py-1.5 text-[12px] font-medium transition-all ${
-                      aiProvider === opt ? "bg-accent text-white shadow-sm" : "text-fg-muted hover:text-fg"
-                    }`}
-                  >
-                    {opt === "openai" ? "OpenAI" : "Anthropic"}
-                  </button>
-                ))}
-              </div>
-              <div className="relative">
-                <input
-                  type="password"
-                  value={aiApiKey}
-                  onChange={(e) => { setAiApiKeyState(e.target.value); saveAiApiKey(e.target.value); }}
-                  placeholder={t("ai_api_key_placeholder")}
-                  className="w-full rounded-lg border border-edge/40 bg-surface/60 px-3 pr-24 py-2 text-[12px] text-fg placeholder:text-fg-muted/40 outline-none transition-all focus:border-accent/50 focus:ring-1 focus:ring-accent/20"
-                />
-                {aiApiKey && (
-                  <span className="absolute right-3 top-1/2 -translate-y-1/2 text-[10px] font-medium text-positive whitespace-nowrap">
-                    {t("ai_connected")}
-                  </span>
-                )}
-              </div>
-            </div>
           </div>
         </div>
       )}
