@@ -1,14 +1,32 @@
-import React, { useCallback } from "react";
+import React, { useCallback, useState } from "react";
+import { invoke } from "@tauri-apps/api/core";
 import { getCurrentWindow } from "@tauri-apps/api/window";
 import type { ScanProgress } from "../types";
+import { useI18n } from "../i18n";
 
 interface ProgressViewProps {
   progress: ScanProgress;
+  isResume?: boolean;
 }
 
-export const ProgressView: React.FC<ProgressViewProps> = ({ progress }) => {
+export const ProgressView: React.FC<ProgressViewProps> = ({ progress, isResume }) => {
+  const { t } = useI18n();
+  const [stopRequested, setStopRequested] = useState(false);
   const isDetecting = progress.phase === "detecting";
   const isCompressing = progress.phase === "compressing";
+
+  const handleStop = useCallback(async () => {
+    if (stopRequested) return;
+    setStopRequested(true);
+    try {
+      await invoke("cancel_scan");
+    } catch (err) {
+      // The scan loop will see the next polled flag toggle on its next
+      // iteration; if invoke itself failed we still want the button to
+      // reflect that a stop was requested so the user does not double-tap.
+      console.warn("cancel_scan failed:", err);
+    }
+  }, [stopRequested]);
 
   // During compressing, show files_read progress; otherwise show processed (detection) progress
   const effectiveProgress =
@@ -79,12 +97,77 @@ export const ProgressView: React.FC<ProgressViewProps> = ({ progress }) => {
               <p className="mt-1.5 text-[13px] leading-relaxed text-fg-muted">
                 {phaseDesc}
               </p>
+              {isResume && (
+                <p className="mt-1 text-[11px] italic leading-relaxed text-accent">
+                  {t("scan_resuming")}
+                </p>
+              )}
             </div>
           </div>
-          <span className="flex-shrink-0 text-5xl font-bold tabular-nums leading-none text-accent">
-            {percentage}%
-          </span>
+          <div className="flex flex-col items-end gap-2">
+            <span className="text-5xl font-bold tabular-nums leading-none text-accent">
+              {percentage}%
+            </span>
+            <button
+              onClick={handleStop}
+              disabled={stopRequested}
+              className={`relative overflow-hidden flex items-center gap-1.5 rounded-lg border px-2.5 py-1 text-[11px] font-medium transition-all ${
+                stopRequested
+                  ? "border-negative/40 text-negative cursor-not-allowed opacity-80"
+                  : "border-edge text-fg-muted hover:border-negative/40 hover:bg-negative/5 hover:text-negative"
+              }`}
+              title={t("scan_stop_tooltip")}
+            >
+              {stopRequested && (
+                <span className="absolute inset-0 animate-shimmer bg-gradient-to-r from-transparent via-negative/15 to-transparent" />
+              )}
+              <span className="relative flex items-center gap-1.5">
+                {stopRequested ? (
+                  <svg className="h-3 w-3 animate-spin" viewBox="0 0 24 24" fill="none">
+                    <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
+                    <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z" />
+                  </svg>
+                ) : (
+                  <svg className="h-3 w-3" fill="currentColor" viewBox="0 0 24 24">
+                    <rect x="6" y="6" width="12" height="12" rx="1.5" />
+                  </svg>
+                )}
+                {stopRequested ? t("scan_stopping") : t("scan_stop")}
+              </span>
+            </button>
+          </div>
         </div>
+
+        {/* Resume detail banner: explicitly show how many files were already
+            done in previous runs vs what will be processed now. */}
+        {isResume && progress.previously_processed > 0 && (
+          <div className="mb-8 flex flex-wrap items-center gap-x-6 gap-y-2 rounded-2xl border border-accent/20 bg-accent/5 px-5 py-3">
+            <div>
+              <div className="text-[10px] font-semibold uppercase tracking-[0.14em] text-fg-muted">
+                {t("scan_resume_done_label")}
+              </div>
+              <div className="mt-0.5 text-[14px] font-semibold tabular-nums text-fg">
+                {progress.previously_processed}
+              </div>
+            </div>
+            <div>
+              <div className="text-[10px] font-semibold uppercase tracking-[0.14em] text-fg-muted">
+                {t("scan_resume_new_label")}
+              </div>
+              <div className="mt-0.5 text-[14px] font-semibold tabular-nums text-fg">
+                {progress.total_files}
+              </div>
+            </div>
+            <div>
+              <div className="text-[10px] font-semibold uppercase tracking-[0.14em] text-fg-muted">
+                {t("scan_resume_total_label")}
+              </div>
+              <div className="mt-0.5 text-[14px] font-semibold tabular-nums text-accent">
+                {progress.total_in_folder || progress.previously_processed + progress.total_files}
+              </div>
+            </div>
+          </div>
+        )}
 
         {/* Progress bar */}
         <div className="mb-14 h-4 w-full overflow-hidden rounded-full bg-surface-elevated">
@@ -126,10 +209,13 @@ export const ProgressView: React.FC<ProgressViewProps> = ({ progress }) => {
           </div>
           <div className="rounded-2xl bg-surface-elevated/50 px-7 py-7">
             <p className="text-[11px] font-medium uppercase tracking-wide text-fg-muted">
-              Faces
+              {t("progress_card_persons")}
             </p>
             <p className="mt-2.5 text-xl font-semibold tabular-nums text-positive">
-              {progress.faces_found}
+              {progress.unique_persons}
+              <span className="ml-1.5 text-[11px] font-normal text-fg-muted">
+                ({progress.faces_found} {t("progress_card_faces_inline")})
+              </span>
             </p>
           </div>
         </div>

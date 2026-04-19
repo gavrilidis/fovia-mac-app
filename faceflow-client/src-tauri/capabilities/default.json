@@ -3,11 +3,14 @@
   "identifier": "default",
   "description": "enables the default permissions",
   "windows": [
-    "main"
+    "main",
+    "faceflow-*"
   ],
   "permissions": [
     "core:default",
     "core:window:allow-start-dragging",
+    "core:window:allow-close",
+    "core:window:allow-destroy",
     "fs:default",
     {
       "identifier": "fs:allow-read-file",

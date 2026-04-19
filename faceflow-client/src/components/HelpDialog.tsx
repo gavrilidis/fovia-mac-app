@@ -3,6 +3,9 @@ import { useI18n } from "../i18n";
 
 interface HelpDialogProps {
   onClose: () => void;
+  // "modal" (default) renders an overlay + centered card for in-app use.
+  // "window" renders a flat full-viewport layout for native sub-windows.
+  variant?: "modal" | "window";
 }
 
 type Tab = "install" | "workflow" | "shortcuts" | "sorting" | "privacy";
@@ -22,9 +25,37 @@ const ShortcutRow: React.FC<{ keys: React.ReactNode; label: string }> = ({ keys,
   </div>
 );
 
-export const HelpDialog: React.FC<HelpDialogProps> = ({ onClose }) => {
+export const HelpDialog: React.FC<HelpDialogProps> = ({ onClose, variant = "modal" }) => {
+  const isWindow = variant === "window";
   const { t } = useI18n();
   const [activeTab, setActiveTab] = useState<Tab>("workflow");
+  // Restored Help search (was previously removed in a refactor). Typing in
+  // the search box jumps to whichever tab contains the first keyword match.
+  // The mapping is intentionally simple — the Help dialog is small and an
+  // index/fuzzy search would be overkill.
+  const [query, setQuery] = useState("");
+
+  // Keyword → tab mapping. Lower-case substrings only.
+  const tabKeywords: Record<Tab, string[]> = {
+    install: ["install", "exiftool", "model", "buffalo", "download", "setup", "установ"],
+    workflow: ["scan", "folder", "drag", "raw", "preview", "сканир", "папк"],
+    sorting: ["sort", "rating", "color", "label", "pick", "reject", "сортир", "оцен", "метк"],
+    shortcuts: ["shortcut", "keyboard", "key", "горяч", "клавиш"],
+    privacy: ["privacy", "cloud", "data", "приват", "облак", "данн"],
+  };
+
+  useEffect(() => {
+    const q = query.trim().toLowerCase();
+    if (!q) return;
+    for (const tab of TAB_IDS) {
+      if (tabKeywords[tab].some((kw) => kw.includes(q) || q.includes(kw))) {
+        setActiveTab(tab);
+        break;
+      }
+    }
+    // tabKeywords is derived from a constant literal, no dependency needed.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [query]);
 
   useEffect(() => {
     const handler = (e: KeyboardEvent) => {
@@ -43,8 +74,20 @@ export const HelpDialog: React.FC<HelpDialogProps> = ({ onClose }) => {
   };
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm">
-      <div className="flex h-[520px] w-[640px] flex-col overflow-hidden rounded-2xl border border-edge bg-surface shadow-2xl">
+    <div
+      className={
+        isWindow
+          ? "flex h-screen w-screen flex-col bg-surface"
+          : "fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm"
+      }
+    >
+      <div
+        className={
+          isWindow
+            ? "flex h-full w-full flex-col overflow-hidden bg-surface"
+            : "flex h-[520px] w-[640px] flex-col overflow-hidden rounded-2xl border border-edge bg-surface shadow-2xl"
+        }
+      >
         {/* Header */}
         <div className="flex items-center justify-between border-b border-edge px-5 py-3.5">
           <div className="flex items-center gap-2.5">
@@ -55,12 +98,24 @@ export const HelpDialog: React.FC<HelpDialogProps> = ({ onClose }) => {
           </div>
           <button
             onClick={onClose}
-            className="flex h-7 w-7 items-center justify-center rounded-md text-fg-muted transition-colors hover:bg-surface-elevated hover:text-fg"
+            className={`flex h-7 w-7 items-center justify-center rounded-md text-fg-muted transition-colors hover:bg-surface-elevated hover:text-fg ${isWindow ? "hidden" : ""}`}
           >
             <svg className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
               <path strokeLinecap="round" strokeLinejoin="round" d="M6 18L18 6M6 6l12 12" />
             </svg>
           </button>
+        </div>
+
+        {/* Search box (restored) */}
+        <div className="border-b border-edge px-5 py-2">
+          <input
+            type="search"
+            value={query}
+            onChange={(e) => setQuery(e.target.value)}
+            placeholder={t("help_search_placeholder")}
+            className="w-full rounded-md border border-edge bg-surface-elevated px-3 py-1.5 text-[12px] text-fg placeholder:text-fg-muted/60 outline-none focus:border-accent/60"
+            autoFocus
+          />
         </div>
 
         {/* Tabs */}
@@ -174,6 +229,12 @@ const WorkflowTab = () => {
 
       <SectionTitle>{t("help_workflow_timeline_title")}</SectionTitle>
       <Para>{t("help_workflow_timeline_desc")}</Para>
+
+      <SectionTitle>{t("help_stop_resume_title")}</SectionTitle>
+      <Para>{t("help_stop_resume_desc")}</Para>
+
+      <SectionTitle>{t("help_bulk_persons_title")}</SectionTitle>
+      <Para>{t("help_bulk_persons_desc")}</Para>
 
       <SectionTitle>{t("help_workflow_accuracy_title")}</SectionTitle>
       <Hint>{t("help_workflow_accuracy_hint")}</Hint>

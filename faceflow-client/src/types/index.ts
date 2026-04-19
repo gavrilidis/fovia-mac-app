@@ -24,6 +24,8 @@ export interface ScanResult {
   no_face_files: string[];
   processed_count: number;
   skipped_files: string[];
+  /** Set when the user pressed Stop during the scan. */
+  was_cancelled: boolean;
 }
 
 export interface ScanProgressRow {
@@ -48,10 +50,16 @@ export interface ScanProgress {
   processed: number;
   current_file: string;
   faces_found: number;
+  /** Live estimate of unique persons (online single-pass clustering). */
+  unique_persons: number;
   errors: number;
   last_error: string;
   phase: "scanning" | "compressing" | "detecting";
   files_read: number;
+  /** How many files were already cached from a previous scan of this folder. */
+  previously_processed: number;
+  /** All image files in the folder (cached + new). */
+  total_in_folder: number;
 }
 
 export interface FaceGroup {

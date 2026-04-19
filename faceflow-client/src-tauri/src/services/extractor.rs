@@ -225,6 +225,136 @@ fn extract_jpeg_from_raw(raw_path: &Path) -> Result<Vec<u8>, String> {
     Ok(output.stdout)
 }
 
+/// Read selected EXIF tags from a RAW (or any) file via exiftool's JSON output.
+/// Returns a `(make, model, lens, focal_length, aperture, shutter, iso, date,
+/// width, height)` tuple. Empty strings for missing fields. Returns `None` if
+/// exiftool is unavailable or the call fails — caller should fall back to the
+/// `kamadak-exif` parser.
+///
+/// We invoke exiftool with `-S -s` (very-short labels) + `-G0` off so that
+/// JSON keys are stable and parse without extra dependencies. We use `-j` for
+/// JSON output and a curated tag list to keep the payload tiny.
+#[allow(clippy::type_complexity)]
+pub fn read_exif_via_exiftool(
+    path: &Path,
+) -> Option<(
+    String,
+    String,
+    String,
+    String,
+    String,
+    String,
+    String,
+    String,
+    u32,
+    u32,
+)> {
+    let exiftool = get_exiftool()?;
+    let output = Command::new(exiftool)
+        .args([
+            "-j",
+            "-n", // numeric where possible (cleaner FocalLength/FNumber)
+            "-Make",
+            "-Model",
+            "-LensModel",
+            "-Lens",
+            "-FocalLength",
+            "-FNumber",
+            "-ExposureTime",
+            "-ISO",
+            "-DateTimeOriginal",
+            "-ImageWidth",
+            "-ImageHeight",
+        ])
+        .arg(path)
+        .output()
+        .ok()?;
+    if !output.status.success() || output.stdout.is_empty() {
+        return None;
+    }
+
+    // Hand-rolled tiny JSON value extractor — avoids pulling serde_json into
+    // this module just for one call and is robust for exiftool's flat array
+    // of one object containing only string / number scalars.
+    let body = String::from_utf8_lossy(&output.stdout);
+    let get = |key: &str| -> String {
+        let needle = format!("\"{key}\":");
+        let Some(idx) = body.find(&needle) else {
+            return String::new();
+        };
+        let rest = &body[idx + needle.len()..];
+        let trimmed = rest.trim_start();
+        if let Some(stripped) = trimmed.strip_prefix('"') {
+            // String value: read until the next unescaped quote.
+            if let Some(end) = stripped.find('"') {
+                return stripped[..end].to_string();
+            }
+            String::new()
+        } else {
+            // Number / bare value: read until comma or closing brace.
+            let end = trimmed
+                .find(|c: char| c == ',' || c == '}' || c == '\n')
+                .unwrap_or(trimmed.len());
+            trimmed[..end].trim().to_string()
+        }
+    };
+
+    let lens = {
+        let l = get("LensModel");
+        if l.is_empty() {
+            get("Lens")
+        } else {
+            l
+        }
+    };
+    let focal = {
+        let f = get("FocalLength");
+        if f.is_empty() || f.contains(' ') {
+            f
+        } else {
+            format!("{f} mm")
+        }
+    };
+    let aperture = {
+        let f = get("FNumber");
+        if f.is_empty() {
+            f
+        } else {
+            format!("f/{f}")
+        }
+    };
+    let shutter = {
+        let s = get("ExposureTime");
+        if s.is_empty() {
+            s
+        } else if let Ok(v) = s.parse::<f64>() {
+            // Convert decimal seconds back to a friendly fraction or value.
+            if v >= 1.0 {
+                format!("{v} s")
+            } else {
+                format!("1/{:.0} s", 1.0 / v)
+            }
+        } else {
+            s
+        }
+    };
+    let width = get("ImageWidth").parse::<u32>().unwrap_or(0);
+    let height = get("ImageHeight").parse::<u32>().unwrap_or(0);
+
+    Some((
+        get("Make"),
+        get("Model"),
+        lens,
+        focal,
+        aperture,
+        shutter,
+        get("ISO"),
+        get("DateTimeOriginal"),
+        width,
+        height,
+    ))
+}
+
 /// Crop a face from an image given bounding box, resize to CROP_SIZE, encode as JPEG.
 /// Returns JPEG bytes. The bbox is expanded by 30% for context.
 pub fn crop_face_jpeg(image_bytes: &[u8], bbox: &[f32; 4]) -> Result<Vec<u8>, String> {

@@ -1,5 +1,6 @@
 import React, { useState } from "react";
-import type { FaceGroup } from "../types";
+import type { FaceGroup, ColorLabel, PickStatus } from "../types";
+import { useI18n } from "../i18n";
 
 interface FaceSidebarProps {
   groups: FaceGroup[];
@@ -8,13 +9,29 @@ interface FaceSidebarProps {
   selectedGroupIds: Set<string>;
   selectedCountPerGroup: Map<string, number>;
   noFaceCount: number;
+  lowQualityCount: number;
+  allPhotosCount: number;
   onSetActive: (groupId: string) => void;
   onToggleGroupSelect: (groupId: string) => void;
+  onSelectAllPersons: () => void;
+  onDeselectAllPersons: () => void;
   onRevealSelected: () => void;
+  onDeleteSelected: () => void;
+  onMergeSelected: () => void;
   onRenameGroup: (groupId: string, name: string) => void;
+  // ---- Optional bulk-actions for the currently selected persons. When
+  //      provided, render the matching buttons in the bulk action bar.
+  onAiAnalyzeSelectedPersons?: () => void;
+  onSetRatingForSelectedPersons?: (rating: number) => void;
+  onSetColorLabelForSelectedPersons?: (label: ColorLabel) => void;
+  onSetPickStatusForSelectedPersons?: (status: PickStatus) => void;
+  onExportSelectedPersons?: () => void;
+  onExportXmpSelectedPersons?: () => void;
 }
 
-const NO_FACES_ID = "__no_faces__";
+export const NO_FACES_ID = "__no_faces__";
+export const LOW_QUALITY_ID = "__low_quality__";
+export const ALL_PHOTOS_ID = "__all_photos__";
 
 export const FaceSidebar: React.FC<FaceSidebarProps> = ({
   groups,
@@ -23,11 +40,29 @@ export const FaceSidebar: React.FC<FaceSidebarProps> = ({
   selectedGroupIds,
   selectedCountPerGroup,
   noFaceCount,
+  lowQualityCount,
+  allPhotosCount,
   onSetActive,
   onToggleGroupSelect,
-  onRevealSelected,
+  onSelectAllPersons,
+  onDeselectAllPersons,
+  onRevealSelected: _ors,
+  onDeleteSelected: _ods,
+  onMergeSelected: _oms,
   onRenameGroup,
+  onAiAnalyzeSelectedPersons: _oasp,
+  onSetRatingForSelectedPersons: _osrsp,
+  onSetColorLabelForSelectedPersons: _osclsp,
+  onSetPickStatusForSelectedPersons: _ospsp,
+  onExportSelectedPersons: _oesp,
+  onExportXmpSelectedPersons: _oexsp,
 }) => {
+  // Discard the bulk-action callbacks: they are now handled by
+  // BottomActionBar in GalleryView. The props remain in the interface for
+  // backwards-compat with the existing wiring in GalleryView.
+  void _ors; void _ods; void _oms;
+  void _oasp; void _osrsp; void _osclsp; void _ospsp; void _oesp; void _oexsp;
+  const { t } = useI18n();
   const [hoveredGroup, setHoveredGroup] = useState<string | null>(null);
   const [hoverY, setHoverY] = useState(0);
   const [editingGroupId, setEditingGroupId] = useState<string | null>(null);
@@ -54,22 +89,64 @@ export const FaceSidebar: React.FC<FaceSidebarProps> = ({
       <div className="flex items-center justify-between px-3 pb-2 pt-3">
         <div className="flex items-center gap-2">
           <h3 className="text-[10px] font-semibold uppercase tracking-[0.12em] text-fg-muted">
-            Persons
+            {t("sidebar_persons")}
           </h3>
           <span className="inline-flex h-5 min-w-5 items-center justify-center rounded-full bg-surface-elevated px-1.5 text-[10px] tabular-nums font-medium text-fg-muted">
             {groups.length}
           </span>
         </div>
-        {selectedGroupIds.size > 0 && (
-          <span className="text-[11px] text-accent">
-            {selectedGroupIds.size} selected
-          </span>
-        )}
+        <button
+          onClick={selectedGroupIds.size === groups.length && groups.length > 0 ? onDeselectAllPersons : onSelectAllPersons}
+          title={t("sidebar_select_all_persons")}
+          className="text-[10px] font-medium text-fg-muted transition-colors hover:text-fg"
+        >
+          {selectedGroupIds.size === groups.length && groups.length > 0
+            ? t("photogrid_deselect_all")
+            : t("photogrid_select_all")}
+        </button>
       </div>
 
       {/* Face list */}
       <div className="flex-1 overflow-y-auto px-2 pb-2">
         <div className="flex flex-col gap-0.5">
+          {/* All scanned photos — sits above the persons list so the user
+              always sees the total number of unique photos in the library
+              (the same photo can appear in multiple person groups). */}
+          {allPhotosCount > 0 && (
+            <>
+              <div className="group relative flex items-center">
+                <button
+                  onClick={() => onSetActive(ALL_PHOTOS_ID)}
+                  className={`flex w-full items-center gap-2.5 rounded-lg py-1.5 pl-3 pr-2 transition-all duration-150 ${
+                    activeGroupId === ALL_PHOTOS_ID ? "bg-accent/10" : "hover:bg-surface-elevated/50"
+                  }`}
+                >
+                  <div
+                    className={`flex h-8 w-8 flex-shrink-0 items-center justify-center rounded-full ring-[1.5px] transition-all ${
+                      activeGroupId === ALL_PHOTOS_ID
+                        ? "ring-accent ring-offset-2 ring-offset-surface-alt"
+                        : "ring-transparent"
+                    } bg-surface-elevated`}
+                  >
+                    <svg className="h-5 w-5 text-fg" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.5}>
+                      <path strokeLinecap="round" strokeLinejoin="round" d="M3.75 6A2.25 2.25 0 0 1 6 3.75h12A2.25 2.25 0 0 1 20.25 6v12A2.25 2.25 0 0 1 18 20.25H6A2.25 2.25 0 0 1 3.75 18V6Z" />
+                      <path strokeLinecap="round" strokeLinejoin="round" d="m3.75 16.5 4.5-4.5 3 3 4.5-4.5 4.5 4.5" />
+                      <circle cx="9" cy="9" r="1.25" fill="currentColor" />
+                    </svg>
+                  </div>
+                  <div className="min-w-0 text-left">
+                    <div className="truncate text-[12px] font-medium text-fg">
+                      {t("sidebar_all_photos")}
+                    </div>
+                    <div className="mt-px text-[10px] tabular-nums text-fg-muted">
+                      {allPhotosCount} {t("photos")}
+                    </div>
+                  </div>
+                </button>
+              </div>
+              <div className="my-1 h-px bg-edge" />
+            </>
+          )}
           {groups.map((group, idx) => {
             const isActive = activeGroupId === group.id;
             const isChecked = selectedGroupIds.has(group.id);
@@ -204,33 +281,55 @@ export const FaceSidebar: React.FC<FaceSidebarProps> = ({
                   </div>
                   <div className="min-w-0 text-left">
                     <div className="truncate text-[12px] font-medium text-fg-muted">
-                      No Faces
+                      {t("sidebar_no_faces")}
                     </div>
                     <div className="mt-px text-[10px] tabular-nums text-fg-muted">
-                      {noFaceCount} photo{noFaceCount !== 1 ? "s" : ""}
+                      {noFaceCount} {noFaceCount !== 1 ? t("photos") : t("photos")}
                     </div>
                   </div>
                 </button>
               </div>
             </>
           )}
+
+          {/* Low quality group */}
+          {lowQualityCount > 0 && (
+            <div className="group relative flex items-center">
+              <button
+                onClick={() => onSetActive(LOW_QUALITY_ID)}
+                className={`flex w-full items-center gap-2.5 rounded-lg py-1.5 pl-3 pr-2 transition-all duration-150 ${
+                  activeGroupId === LOW_QUALITY_ID ? "bg-accent/10" : "hover:bg-surface-elevated/50"
+                }`}
+              >
+                <div
+                  className={`flex h-8 w-8 flex-shrink-0 items-center justify-center rounded-full ring-[1.5px] transition-all ${
+                    activeGroupId === LOW_QUALITY_ID
+                      ? "ring-accent ring-offset-2 ring-offset-surface-alt"
+                      : "ring-transparent"
+                  } bg-surface-elevated`}
+                >
+                  <svg className="h-5 w-5 text-fg-muted" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.5}>
+                    <path strokeLinecap="round" strokeLinejoin="round" d="M12 9v3.75m-9.303 3.376c-.866 1.5.217 3.374 1.948 3.374h14.71c1.73 0 2.813-1.874 1.948-3.374L13.949 3.378c-.866-1.5-3.032-1.5-3.898 0L2.697 16.126ZM12 15.75h.007v.008H12v-.008Z" />
+                  </svg>
+                </div>
+                <div className="min-w-0 text-left">
+                  <div className="truncate text-[12px] font-medium text-fg-muted">
+                    {t("sidebar_low_quality")}
+                  </div>
+                  <div className="mt-px text-[10px] tabular-nums text-fg-muted">
+                    {lowQualityCount} {t("photos")}
+                  </div>
+                </div>
+              </button>
+            </div>
+          )}
         </div>
       </div>
 
-      {/* Bulk action bar */}
-      {selectedGroupIds.size > 0 && (
-        <div className="flex flex-col gap-1.5 border-t border-edge px-3 py-2.5">
-          <button
-            onClick={onRevealSelected}
-            className="flex w-full items-center justify-center gap-2 rounded-lg bg-accent px-3 py-2 text-[12px] font-medium text-white transition-all duration-150 hover:bg-accent-hover active:scale-[0.97]"
-          >
-            <svg className="h-3.5 w-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
-              <path strokeLinecap="round" strokeLinejoin="round" d="M3.75 9.776c.112-.017.227-.026.344-.026h15.812c.117 0 .232.009.344.026m-16.5 0a2.25 2.25 0 00-1.883 2.542l.857 6a2.25 2.25 0 002.227 1.932H19.05a2.25 2.25 0 002.227-1.932l.857-6a2.25 2.25 0 00-1.883-2.542m-16.5 0V6A2.25 2.25 0 016 3.75h3.879a1.5 1.5 0 011.06.44l2.122 2.12a1.5 1.5 0 001.06.44H18A2.25 2.25 0 0120.25 9v.776" />
-            </svg>
-            Reveal in Finder
-          </button>
-        </div>
-      )}
+      {/* Bulk action UI was removed from the sidebar. All bulk actions on
+          the current selection are owned by the unified BottomActionBar
+          rendered by GalleryView, so users see a single, consistent
+          surface instead of three parallel toolbars. */}
     </div>
   );
 };

@@ -107,17 +107,18 @@ Output: `src-tauri/target/release/bundle/dmg/FaceFlow_*.dmg`
 - **Cross-Person Selection** — Select photos across multiple person groups for comparison
 - **Move Between Persons** — Reassign misidentified photos to the correct person group
 - **Inline Rename** — Double-click person names in the sidebar to rename
-- **Compare View** — Side-by-side photo comparison
+- **Compare View** — Side-by-side comparison of 2-4 photos
 - **Event Timeline** — Auto-group photos by time gaps
 - **Quality Detection** — Blur score and closed-eye detection
 - **EXIF Inspector** — View full photo metadata
-- **Export** — Copy selected photos to a destination folder
+- **Export** — Copy selected photos to a destination folder with optional XMP sidecar files (ratings, labels, AI tags for Lightroom/Bridge/Capture One)
 
 ### UI & Experience
-- **Dark/Light/System Theme** — macOS glass-morphism design with backdrop blur
+- **Dark/Light/System Theme** — Instant switching, macOS glass-morphism design
 - **Russian & English** — Full localization with runtime language switching
+- **Dense Photo Grid** — Lightroom-style compact thumbnail grid with crop-to-fill display
 - **AI Photo Search** — Search photos by keywords using AI-generated tags (OpenAI/Anthropic)
-- **Settings Panel** — Theme, language, AI API key configuration
+- **Native Sub-Windows** — Settings, Help, and Export open as separate native OS windows
 - **In-App Help** — Full documentation with keyboard shortcuts reference
 - **Auto-Updates** — Signed updates via GitHub Releases
 - **Offline-First** — Works without internet after initial setup (30-day grace period)
@@ -162,3 +163,47 @@ FaceFlow is currently distributed as an unsigned app. To distribute via the Mac 
 ## License
 
 MIT
+
+## Disk usage & maintenance
+
+FaceFlow's Cargo build directory (`faceflow-client/src-tauri/target/`) can
+grow to **10+ GB** during active development — this is normal Rust
+incremental-compilation behaviour and not actual file duplicates, even
+when CleanMyMac flags it as such.
+
+A maintenance script is provided to reclaim space safely without
+breaking your dev environment:
+
+```bash
+./scripts/cleanup.sh          # safe cleanup (target/release, .vite, __pycache__, .DS_Store)
+./scripts/cleanup.sh --full   # nuclear: also wipes target/, node_modules/, .venv/
+```
+
+The repo's `.gitignore` ignores `**/target/`, `**/node_modules/`,
+`**/.venv/`, and other generated artifacts so they never reach the
+remote. Each subproject (`faceflow-client/`, `cloud-api/`) also has its
+own `.gitignore` for tooling that runs from inside that directory.
+
+## UI architecture notes
+
+- **Single bottom action bar** — bulk operations on selected photos /
+  persons are exposed via one `BottomActionBar` (gallery footer) that also
+  contains the color-label picker and Compare button.
+- **Native sub-windows** — Settings, Help, and Export open as their own
+  native Tauri windows via the `open_app_window` Rust command and the
+  `?window=<name>` URL pattern handled by `SubWindowApp` in `App.tsx`.
+- **Cross-window theme sync** — Theme/locale changes in a sub-window
+  (e.g. Settings) propagate to the main window in real-time via the
+  `storage` event on `localStorage`.
+- **Unified Settings** — both the initial DropZone screen and the
+  Gallery view open the *same* `SettingsPanel` component (in a sub-window
+  when possible, in-app as a fallback).
+- **Dense grid** — `PhotoGrid` uses crop-to-fill (`object-cover`) thumbnails
+  with 4px gaps and minimal padding for a Lightroom-style compact layout.
+- **XMP sidecar export** — The Export dialog includes an opt-in checkbox to
+  write `.xmp` sidecar files alongside exported photos, carrying ratings,
+  color labels, pick status, and AI-generated keywords.
+- **List view & Select All** — the View menu's Grid/List items toggle
+  `PhotoGrid`'s internal `viewMode`, and Edit → Select / Deselect All
+  Photos drive the selection set through the menu-bridge in
+  `GalleryView`.

@@ -1,0 +1,11 @@
+# faceflow-client
+target/
+dist/
+.vite/
+node_modules/
+*.tsbuildinfo
+src-tauri/gen/schemas/
+src-tauri/WixTools/
+src-tauri/.fingerprint/
+src-tauri/activation.secret
+.DS_Store

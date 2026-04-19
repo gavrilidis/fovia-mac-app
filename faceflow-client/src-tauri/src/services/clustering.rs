@@ -19,7 +19,11 @@ fn cosine_similarity(a: &[f32], b: &[f32]) -> f32 {
         norm_b += b[i] * b[i];
     }
     let denom = norm_a.sqrt() * norm_b.sqrt();
-    if denom == 0.0 { 0.0 } else { dot / denom }
+    if denom == 0.0 {
+        0.0
+    } else {
+        dot / denom
+    }
 }
 
 fn compute_centroid(embeddings: &[Vec<f32>], indices: &[usize]) -> Vec<f32> {
@@ -95,6 +99,100 @@ pub fn cluster_faces(embeddings: Vec<Vec<f32>>, threshold: f32) -> Vec<Vec<usize
         clusters[j] = None;
     }
 
+    // ---- Second pass: rescue singletons by attaching them to the nearest
+    // multi-member cluster if similarity is above a looser threshold.
+    // Multi-member centroids are statistically more reliable, so this catches
+    // single-shot odd-angle / odd-lighting faces that HAC failed to merge.
+    let rescue_threshold = (threshold - 0.06_f32).max(0.20_f32);
+    let mut active: Vec<usize> = (0..clusters.len())
+        .filter(|i| clusters[*i].is_some())
+        .collect();
+
+    // Collect singleton indices (in cluster space) and target indices (multi-member).
+    let singletons: Vec<usize> = active
+        .iter()
+        .copied()
+        .filter(|i| clusters[*i].as_ref().is_some_and(|c| c.indices.len() == 1))
+        .collect();
+    let targets: Vec<usize> = active
+        .iter()
+        .copied()
+        .filter(|i| clusters[*i].as_ref().is_some_and(|c| c.indices.len() >= 2))
+        .collect();
+
+    for s in singletons {
+        let Some(scluster) = clusters[s].as_ref().map(|c| c.centroid.clone()) else {
+            continue;
+        };
+        let mut best_sim = -1.0f32;
+        let mut best_t: Option<usize> = None;
+        for &t in &targets {
+            let Some(tc) = clusters[t].as_ref() else {
+                continue;
+            };
+            let sim = cosine_similarity(&scluster, &tc.centroid);
+            if sim > best_sim {
+                best_sim = sim;
+                best_t = Some(t);
+            }
+        }
+        if let Some(t) = best_t {
+            if best_sim > rescue_threshold {
+                let mut merged = clusters[t].as_ref().unwrap().indices.clone();
+                merged.extend_from_slice(&clusters[s].as_ref().unwrap().indices);
+                let centroid = compute_centroid(&embeddings, &merged);
+                clusters[t] = Some(Cluster {
+                    indices: merged,
+                    centroid,
+                });
+                clusters[s] = None;
+            }
+        }
+    }
+
+    // ---- Third pass: merge small clusters whose centroids are still
+    // close (looser than HAC threshold) — addresses the case where the
+    // same person is split into 2-3 sub-clusters by HAC's strict cutoff.
+    let small_merge_threshold = (threshold - 0.05_f32).max(0.20_f32);
+    loop {
+        active = (0..clusters.len())
+            .filter(|i| clusters[*i].is_some())
+            .collect();
+        let mut best_sim = -1.0f32;
+        let mut best_pair: Option<(usize, usize)> = None;
+        for ai in 0..active.len() {
+            let i = active[ai];
+            let Some(ci) = &clusters[i] else { continue };
+            // Only attempt looser merging on small clusters (≤6 members).
+            if ci.indices.len() > 6 {
+                continue;
+            }
+            for &j in active.iter().skip(ai + 1) {
+                let Some(cj) = &clusters[j] else { continue };
+                if cj.indices.len() > 6 {
+                    continue;
+                }
+                let sim = cosine_similarity(&ci.centroid, &cj.centroid);
+                if sim > best_sim {
+                    best_sim = sim;
+                    best_pair = Some((i, j));
+                }
+            }
+        }
+        if best_sim <= small_merge_threshold {
+            break;
+        }
+        let Some((i, j)) = best_pair else { break };
+        let mut merged = clusters[i].as_ref().unwrap().indices.clone();
+        merged.extend_from_slice(&clusters[j].as_ref().unwrap().indices);
+        let centroid = compute_centroid(&embeddings, &merged);
+        clusters[i] = Some(Cluster {
+            indices: merged,
+            centroid,
+        });
+        clusters[j] = None;
+    }
+
     let mut out = Vec::new();
     for cluster in clusters.into_iter().flatten() {
         out.push(cluster.indices);
@@ -107,7 +205,76 @@ pub fn cluster_faces_command(
     embeddings: Vec<Vec<f32>>,
     threshold: Option<f32>,
 ) -> Result<Vec<Vec<usize>>, String> {
-    Ok(cluster_faces(embeddings, threshold.unwrap_or(0.38)))
+    Ok(cluster_faces(embeddings, threshold.unwrap_or(0.32)))
+}
+
+/// Lightweight single-pass online clusterer used during scanning to give the
+/// user a *live* estimate of the number of unique persons. Unlike the full
+/// HAC pipeline (which is recomputed at scan-end), this version only needs
+/// O(P) work per added embedding (P = current cluster count) so it stays
+/// cheap even for thousands of faces.
+///
+/// The estimate is intentionally conservative—the threshold is slightly
+/// looser than HAC's default (0.30 vs 0.32) so the live counter does not
+/// over-shoot before the final HAC + small-cluster merge runs at the end of
+/// the scan and produces the authoritative number.
+pub struct OnlineClusterer {
+    pub threshold: f32,
+    pub centroids: Vec<Vec<f32>>,
+    pub counts: Vec<usize>,
+}
+
+impl OnlineClusterer {
+    pub fn new(threshold: f32) -> Self {
+        Self {
+            threshold,
+            centroids: Vec::new(),
+            counts: Vec::new(),
+        }
+    }
+
+    /// Insert a single face embedding. Returns the index of the cluster it
+    /// was assigned to (or a freshly created cluster).
+    pub fn add(&mut self, embedding: &[f32]) -> usize {
+        let mut best_sim = -1.0f32;
+        let mut best_idx: Option<usize> = None;
+        for (i, c) in self.centroids.iter().enumerate() {
+            let sim = cosine_similarity(c, embedding);
+            if sim > best_sim {
+                best_sim = sim;
+                best_idx = Some(i);
+            }
+        }
+
+        if let (Some(i), true) = (best_idx, best_sim > self.threshold) {
+            // Update centroid as running mean.
+            let count = self.counts[i] as f32;
+            let new_count = count + 1.0;
+            for (j, v) in embedding.iter().enumerate() {
+                self.centroids[i][j] = (self.centroids[i][j] * count + *v) / new_count;
+            }
+            self.counts[i] += 1;
+            i
+        } else {
+            self.centroids.push(embedding.to_vec());
+            self.counts.push(1);
+            self.centroids.len() - 1
+        }
+    }
+
+    /// Number of distinct person clusters discovered so far.
+    pub fn len(&self) -> usize {
+        self.centroids.len()
+    }
+
+    pub fn is_empty(&self) -> bool {
+        self.centroids.is_empty()
+    }
+
+    pub fn reset(&mut self) {
+        self.centroids.clear();
+        self.counts.clear();
+    }
 }
 
 #[cfg(test)]
@@ -128,5 +295,46 @@ mod tests {
         clusters.sort_by_key(|c| c.len());
         assert_eq!(clusters.len(), 3);
         assert!(clusters.iter().all(|c| c.len() == 2));
+    }
+
+    #[test]
+    fn online_clusterer_groups_similar_embeddings() {
+        // Three logical persons, two embeddings each, slightly perturbed.
+        let inputs: [&[f32]; 6] = [
+            &[1.0, 0.0, 0.0],
+            &[0.99, 0.05, 0.01],
+            &[0.0, 1.0, 0.0],
+            &[0.02, 0.98, 0.01],
+            &[0.0, 0.0, 1.0],
+            &[0.01, 0.02, 0.99],
+        ];
+        let mut oc = OnlineClusterer::new(0.85);
+        for emb in inputs.iter() {
+            oc.add(emb);
+        }
+        assert_eq!(
+            oc.len(),
+            3,
+            "expected 3 distinct clusters, got {}",
+            oc.len()
+        );
+    }
+
+    #[test]
+    fn online_clusterer_creates_new_cluster_for_dissimilar() {
+        let mut oc = OnlineClusterer::new(0.95);
+        oc.add(&[1.0, 0.0]);
+        oc.add(&[-1.0, 0.0]);
+        assert_eq!(oc.len(), 2);
+    }
+
+    #[test]
+    fn online_clusterer_reset_clears_state() {
+        let mut oc = OnlineClusterer::new(0.5);
+        oc.add(&[1.0, 0.0]);
+        oc.add(&[0.0, 1.0]);
+        assert_eq!(oc.len(), 2);
+        oc.reset();
+        assert!(oc.is_empty());
     }
 }

@@ -1,0 +1,105 @@
+FaceFlow — Инструкция по установке для macOS
+=================================================
+
+1. Установка
+------------
+
+  1.1. Перетащите иконку «FaceFlow» в папку «Программы» (Applications)
+       в этом же окне DMG.
+  1.2. Закройте окно DMG и извлеките образ (правой кнопкой → «Извлечь»).
+
+2. Первый запуск
+----------------
+
+  2.1. Откройте папку «Программы» и запустите FaceFlow.
+  2.2. Если macOS показывает сообщение «не удалось проверить разработчика»
+       или «приложение повреждено» — это стандартное предупреждение
+       Gatekeeper для приложений, распространяемых вне App Store.
+
+       Решение (выполняется один раз):
+
+         a) Откройте «Системные настройки» → «Конфиденциальность и
+            безопасность».
+         b) Прокрутите вниз. Вы увидите сообщение про FaceFlow и кнопку
+            «Открыть всё равно». Нажмите её.
+         c) Подтвердите паролем администратора.
+
+       Альтернативно, через Терминал (одна команда):
+
+         xattr -dr com.apple.quarantine /Applications/FaceFlow.app
+
+3. Активация
+-------------
+
+  3.1. При первом запуске введите ключ активации, который вы получили
+       при покупке.
+  3.2. Ключ привязывается к этому компьютеру и сохраняется локально.
+
+4. Сканирование фотографий
+---------------------------
+
+  4.1. Перетащите папку с фотографиями в окно FaceFlow или нажмите
+       «Выбрать папку».
+  4.2. FaceFlow поддерживает: JPG, PNG, HEIC, RAW (RW2, RAF, ARW, NEF,
+       CR2, DNG и др.).
+  4.3. Распознавание лиц происходит в облаке; для работы требуется
+       соединение с интернетом.
+
+5. Поддержка
+-------------
+
+  По вопросам установки и работы пишите на support@faceflow.app
+
+
+==================================================================
+                         English version
+==================================================================
+
+FaceFlow — Installation Guide for macOS
+========================================
+
+1. Install
+-----------
+
+  1.1. Drag the FaceFlow icon into the Applications folder in this DMG.
+  1.2. Close the DMG window and eject the disk image.
+
+2. First launch
+----------------
+
+  2.1. Open Applications and launch FaceFlow.
+  2.2. If macOS shows "Apple could not verify the developer" or
+       "the app is damaged" — this is the standard Gatekeeper warning
+       for apps distributed outside the App Store.
+
+       One-time fix:
+
+         a) Open System Settings → Privacy & Security.
+         b) Scroll down. You will see a notice about FaceFlow and an
+            "Open Anyway" button. Click it.
+         c) Confirm with your admin password.
+
+       Alternative — single command in Terminal:
+
+         xattr -dr com.apple.quarantine /Applications/FaceFlow.app
+
+3. Activation
+--------------
+
+  3.1. On first launch, enter the activation key you received with
+       your purchase.
+  3.2. The key is bound to this Mac and stored locally.
+
+4. Scanning photos
+-------------------
+
+  4.1. Drag a folder of photos into FaceFlow, or click "Choose folder".
+  4.2. Supported formats: JPG, PNG, HEIC, and RAW (RW2, RAF, ARW, NEF,
+       CR2, DNG, …).
+  4.3. Face recognition runs in the cloud; an internet connection is
+       required.
+
+5. Support
+-----------
+
+  For installation help, contact support@faceflow.app

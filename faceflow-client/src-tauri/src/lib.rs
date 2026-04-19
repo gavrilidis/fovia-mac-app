@@ -1,10 +1,12 @@
 mod commands;
+mod menu;
 mod services;
 
-use tauri::Manager;
+use std::sync::{atomic::AtomicBool, Arc};
 
-use commands::scan::{DbState, ModelState};
+use tauri::{Emitter, Manager};
 
+use commands::scan::{DbState, ModelState, ScanCancellation};
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     tauri::Builder::default()
@@ -35,6 +37,20 @@ pub fn run() {
 
             app.manage(DbState(pool));
             app.manage(ModelState(std::sync::Mutex::new(None)));
+            // Shared cancellation flag toggled by `cancel_scan` and polled
+            // by `scan_folder` so the user can stop a long-running scan at
+            // any time without losing already-saved progress.
+            app.manage(ScanCancellation(Arc::new(AtomicBool::new(false))));
+
+            // Native macOS menu (File / Edit / View / Window / Help) with
+            // shortcuts. Items emit a `menu:<id>` event over the global
+            // event bus that the frontend listens for.
+            let app_menu = menu::build_app_menu(app.handle())?;
+            app.set_menu(app_menu)?;
+            app.on_menu_event(move |app, event| {
+                let id = event.id().0.clone();
+                let _ = app.emit("faceflow:menu", id);
+            });
 
             Ok(())
         })
@@ -46,6 +62,12 @@ pub fn run() {
             commands::scan::list_volumes,
             commands::scan::reveal_in_finder,
             commands::scan::open_file,
+            commands::scan::open_url,
+            commands::scan::get_storage_stats,
+            commands::scan::vacuum_database,
+            commands::scan::reveal_app_data_in_finder,
+            commands::scan::open_app_window,
+            commands::scan::export_folder_summary,
             commands::scan::check_models,
             commands::scan::download_models,
             commands::scan::download_exiftool,
@@ -69,6 +91,9 @@ pub fn run() {
             commands::scan::auto_group_by_event,
             commands::scan::get_scan_progress,
             commands::scan::clear_scan_progress,
+            commands::scan::cancel_scan,
+            commands::scan::reset_folder_data,
+            commands::scan::count_folder_scanned_files,
             services::secrets::save_secret,
             services::secrets::get_secret,
             services::secrets::delete_secret,

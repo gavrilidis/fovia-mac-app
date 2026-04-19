@@ -1,7 +1,5 @@
 import React, { useCallback, useState, useRef, useEffect } from "react";
 import { getCurrentWindow } from "@tauri-apps/api/window";
-import { StarRating } from "./StarRating";
-import { ColorLabelPicker } from "./ColorLabelPicker";
 import { FaceFlowLogo } from "./FaceFlowLogo";
 import { useI18n } from "../i18n";
 import type { FaceGroup, ColorLabel, PickStatus, PhotoMeta } from "../types";
@@ -74,15 +72,19 @@ const IconBtn: React.FC<{
 export const Toolbar: React.FC<ToolbarProps> = ({
   groupCount,
   selectedPhotoCount,
-  selectedPhotoPaths,
-  metaMap,
-  onSetRating,
-  onSetColorLabel,
-  onSetPickStatus,
-  onRevealPhotos,
-  onExport,
-  onExportXmp,
-  onCompare,
+  // selection-related props are accepted to keep the existing prop
+  // interface stable, but the toolbar no longer renders selection UI —
+  // it is owned by BottomActionBar instead. They're explicitly destructured
+  // and immediately discarded so callers don't have to change.
+  selectedPhotoPaths: _spp,
+  metaMap: _mm,
+  onSetRating: _osr,
+  onSetColorLabel: _oscl,
+  onSetPickStatus: _osps,
+  onRevealPhotos: _orp,
+  onExport: _oe,
+  onExportXmp: _oex,
+  onCompare: _oc,
   onToggleExif,
   onReset,
   showExif,
@@ -99,11 +101,11 @@ export const Toolbar: React.FC<ToolbarProps> = ({
   eventGap,
   onEventGapChange,
   eventCount,
-  groups,
-  groupNames,
-  activeGroupId,
-  onMovePhotos,
-  onCreateGroupAndMove,
+  groups: _g,
+  groupNames: _gn,
+  activeGroupId: _agi,
+  onMovePhotos: _omp,
+  onCreateGroupAndMove: _ocgm,
   onHelp,
   onSettings,
   searchQuery,
@@ -112,6 +114,10 @@ export const Toolbar: React.FC<ToolbarProps> = ({
   aiAnalyzing,
   aiConfigured,
 }) => {
+  // Suppress "unused" lint for the discarded selection props above.
+  void _spp; void _mm; void _osr; void _oscl; void _osps;
+  void _orp; void _oe; void _oex; void _oc;
+  void _g; void _gn; void _agi; void _omp; void _ocgm;
   const { t } = useI18n();
   const handleWindowDrag = useCallback((e: React.MouseEvent) => {
     if ((e.target as HTMLElement).closest("button, input, a, select, textarea")) return;
@@ -133,19 +139,8 @@ export const Toolbar: React.FC<ToolbarProps> = ({
     return () => document.removeEventListener("mousedown", handleClickOutside);
   }, [showMoveMenu]);
 
-  const selectedMetas = selectedPhotoPaths.map((fp) => metaMap.get(fp)).filter(Boolean);
-  const commonRating =
-    selectedMetas.length > 0 && selectedMetas.every((m) => m!.rating === selectedMetas[0]!.rating)
-      ? selectedMetas[0]!.rating
-      : 0;
-  const commonLabel =
-    selectedMetas.length > 0 && selectedMetas.every((m) => m!.color_label === selectedMetas[0]!.color_label)
-      ? selectedMetas[0]!.color_label
-      : ("none" as ColorLabel);
-  const commonPick =
-    selectedMetas.length > 0 && selectedMetas.every((m) => m!.pick_status === selectedMetas[0]!.pick_status)
-      ? selectedMetas[0]!.pick_status
-      : ("none" as PickStatus);
+  const selectedMetas: PhotoMeta[] = [];
+  void selectedMetas;
 
   const hasSelection = selectedPhotoCount > 0;
   const hasActiveFilters = filterRating > 0 || filterPick !== "all" || filterLabel !== "all" || filterQuality !== "all";
@@ -177,6 +172,7 @@ export const Toolbar: React.FC<ToolbarProps> = ({
           </svg>
           <input
             type="text"
+            id="faceflow-search-input"
             value={searchQuery}
             onChange={(e) => onSearchChange(e.target.value)}
             placeholder={t("ai_search_placeholder")}
@@ -353,179 +349,10 @@ export const Toolbar: React.FC<ToolbarProps> = ({
         </div>
       </div>
 
-      {/* ── Row 2: Selection Bar (only when photos selected) ── */}
-      {hasSelection && (
-        <div className="flex h-10 items-center gap-3 border-t border-edge/40 px-4">
-          {/* Selection count */}
-          <span className="flex-shrink-0 text-[11px] font-medium tabular-nums text-accent">
-            {selectedPhotoCount} {t("toolbar_selected").replace("{count}", "").trim()}
-          </span>
-
-          <div className="h-3.5 w-px bg-edge" />
-
-          {/* Rating */}
-          <StarRating
-            rating={commonRating}
-            size="sm"
-            onChange={(r) => onSetRating(selectedPhotoPaths, r)}
-          />
-
-          <div className="h-3.5 w-px bg-edge" />
-
-          {/* Color labels */}
-          <ColorLabelPicker
-            current={commonLabel}
-            onChange={(l) => onSetColorLabel(selectedPhotoPaths, l)}
-          />
-
-          <div className="h-3.5 w-px bg-edge" />
-
-          {/* Pick / Reject */}
-          <div className="flex items-center gap-0.5">
-            <button
-              onClick={() => onSetPickStatus(selectedPhotoPaths, commonPick === "pick" ? "none" : "pick")}
-              title="Pick (P)"
-              className={`flex h-7 w-7 items-center justify-center rounded-md transition-all duration-150 ${
-                commonPick === "pick"
-                  ? "bg-positive/20 text-positive"
-                  : "text-fg-muted/50 hover:bg-surface-elevated hover:text-fg"
-              }`}
-            >
-              <svg className="h-3.5 w-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2.5}>
-                <path strokeLinecap="round" strokeLinejoin="round" d="M4.5 12.75l6 6 9-13.5" />
-              </svg>
-            </button>
-            <button
-              onClick={() => onSetPickStatus(selectedPhotoPaths, commonPick === "reject" ? "none" : "reject")}
-              title="Reject (X)"
-              className={`flex h-7 w-7 items-center justify-center rounded-md transition-all duration-150 ${
-                commonPick === "reject"
-                  ? "bg-negative/20 text-negative"
-                  : "text-fg-muted/50 hover:bg-surface-elevated hover:text-fg"
-              }`}
-            >
-              <svg className="h-3.5 w-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2.5}>
-                <path strokeLinecap="round" strokeLinejoin="round" d="M6 18L18 6M6 6l12 12" />
-              </svg>
-            </button>
-          </div>
-
-          <div className="h-3.5 w-px bg-edge" />
-
-          {/* Move to person */}
-          <div className="relative" ref={moveMenuRef}>
-            <button
-              onClick={() => setShowMoveMenu((v) => !v)}
-              title="Move selected to another person"
-              className={`flex h-7 items-center gap-1.5 rounded-md border px-2.5 text-[11px] font-medium transition-all duration-150 ${
-                showMoveMenu
-                  ? "border-accent/40 bg-accent/10 text-accent"
-                  : "border-edge text-fg-muted hover:border-edge-light hover:bg-surface-elevated hover:text-fg"
-              }`}
-            >
-              <svg className="h-3.5 w-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
-                <path strokeLinecap="round" strokeLinejoin="round" d="M7.5 21L3 16.5m0 0L7.5 12M3 16.5h13.5m0-13.5L21 7.5m0 0L16.5 12M21 7.5H7.5" />
-              </svg>
-              {t("move_to")}
-            </button>
-            {showMoveMenu && (
-              <div className="absolute left-0 top-full z-50 mt-1 w-52 rounded-lg border border-edge bg-surface shadow-xl">
-                <div className="max-h-60 overflow-y-auto py-1">
-                  {groups.map((g, idx) => {
-                    const isCurrentGroup = g.id === activeGroupId;
-                    const label = groupNames.get(g.id) || `Person ${idx + 1}`;
-                    return (
-                      <button
-                        key={g.id}
-                        disabled={isCurrentGroup}
-                        onClick={() => {
-                          onMovePhotos(g.id);
-                          setShowMoveMenu(false);
-                        }}
-                        className={`flex w-full items-center gap-2.5 px-3 py-1.5 text-left text-[11px] transition-colors ${
-                          isCurrentGroup
-                            ? "cursor-default text-fg-muted/40"
-                            : "text-fg hover:bg-surface-elevated"
-                        }`}
-                      >
-                        <div className="h-5 w-5 flex-shrink-0 overflow-hidden rounded-full bg-surface-elevated">
-                          {g.representative.preview_base64 ? (
-                            <img
-                              src={`data:image/jpeg;base64,${g.representative.preview_base64}`}
-                              alt=""
-                              className="h-full w-full object-cover"
-                            />
-                          ) : (
-                            <svg className="h-full w-full p-0.5 text-fg-muted" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.5}>
-                              <path strokeLinecap="round" strokeLinejoin="round" d="M15.75 6a3.75 3.75 0 11-7.5 0 3.75 3.75 0 017.5 0zM4.501 20.118a7.5 7.5 0 0114.998 0A17.933 17.933 0 0112 21.75c-2.676 0-5.216-.584-7.499-1.632z" />
-                            </svg>
-                          )}
-                        </div>
-                        <span className="truncate">{label}</span>
-                        <span className="ml-auto text-[10px] tabular-nums text-fg-muted">
-                          {g.members.length}
-                        </span>
-                      </button>
-                    );
-                  })}
-                </div>
-                <div className="border-t border-edge">
-                  <button
-                    onClick={() => {
-                      onCreateGroupAndMove();
-                      setShowMoveMenu(false);
-                    }}
-                    className="flex w-full items-center gap-2.5 px-3 py-2 text-left text-[11px] font-medium text-accent transition-colors hover:bg-accent/10"
-                  >
-                    <svg className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
-                      <path strokeLinecap="round" strokeLinejoin="round" d="M12 4.5v15m7.5-7.5h-15" />
-                    </svg>
-                    {t("toolbar_new_person")}
-                  </button>
-                </div>
-              </div>
-            )}
-          </div>
-
-          {/* Spacer */}
-          <div className="min-w-2 flex-1" />
-
-          {/* Selection actions */}
-          <div className="flex items-center gap-0.5">
-            {selectedPhotoCount >= 2 && (
-              <IconBtn onClick={onCompare} title={t("toolbar_compare")}>
-                <svg className="h-[15px] w-[15px]" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.5}>
-                  <path strokeLinecap="round" strokeLinejoin="round" d="M3.75 6A2.25 2.25 0 016 3.75h2.25A2.25 2.25 0 0110.5 6v2.25a2.25 2.25 0 01-2.25 2.25H6a2.25 2.25 0 01-2.25-2.25V6zM3.75 15.75A2.25 2.25 0 016 13.5h2.25a2.25 2.25 0 012.25 2.25V18a2.25 2.25 0 01-2.25 2.25H6A2.25 2.25 0 013.75 18v-2.25zM13.5 6a2.25 2.25 0 012.25-2.25H18A2.25 2.25 0 0120.25 6v2.25A2.25 2.25 0 0118 10.5h-2.25a2.25 2.25 0 01-2.25-2.25V6zM13.5 15.75a2.25 2.25 0 012.25-2.25H18a2.25 2.25 0 012.25 2.25V18A2.25 2.25 0 0118 20.25h-2.25A2.25 2.25 0 0113.5 18v-2.25z" />
-                </svg>
-              </IconBtn>
-            )}
-
-            <IconBtn onClick={onRevealPhotos} title={t("toolbar_reveal")}>
-              <svg className="h-[15px] w-[15px]" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.5}>
-                <path strokeLinecap="round" strokeLinejoin="round" d="M3.75 9.776c.112-.017.227-.026.344-.026h15.812c.117 0 .232.009.344.026m-16.5 0a2.25 2.25 0 00-1.883 2.542l.857 6a2.25 2.25 0 002.227 1.932H19.05a2.25 2.25 0 002.227-1.932l.857-6a2.25 2.25 0 00-1.883-2.542m-16.5 0V6A2.25 2.25 0 016 3.75h3.879a1.5 1.5 0 011.06.44l2.122 2.12a1.5 1.5 0 001.06.44H18A2.25 2.25 0 0120.25 9v.776" />
-              </svg>
-            </IconBtn>
-
-            <button
-              onClick={onExport}
-              title="Export selected"
-              className="ml-1 flex h-7 items-center gap-1.5 rounded-md bg-accent px-3 text-[11px] font-medium text-white transition-all duration-150 hover:bg-accent-hover active:scale-[0.97]"
-            >
-              <svg className="h-3 w-3" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2.5}>
-                <path strokeLinecap="round" strokeLinejoin="round" d="M3 16.5v2.25A2.25 2.25 0 005.25 21h13.5A2.25 2.25 0 0021 18.75V16.5m-13.5-9L12 3m0 0l4.5 4.5M12 3v13.5" />
-              </svg>
-              {t("toolbar_export")}
-            </button>
-            <button
-              onClick={onExportXmp}
-              title={t("toolbar_export_xmp")}
-              className="ml-1 flex h-7 items-center gap-1.5 rounded-md border border-edge px-3 text-[11px] font-medium text-fg transition-all duration-150 hover:bg-surface-elevated"
-            >
-              {t("toolbar_export_xmp")}
-            </button>
-          </div>
-        </div>
-      )}
+      {/* Row 2 (selection actions) was removed in favour of the unified
+          BottomActionBar — see GalleryView. Keeping the actions in only
+          one place avoids the previous "three parallel selection bars"
+          problem (top toolbar + persons sidebar + bottom bar). */}
     </div>
   );
 };

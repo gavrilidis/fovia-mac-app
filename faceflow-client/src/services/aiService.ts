@@ -306,3 +306,245 @@ export async function analyzePhotoBatch(
   onProgress(photos.length, photos.length, "");
   return results;
 }
+
+// ---------------------------------------------------------------------------
+// Quality analysis: blur / closed-eyes / off-frame detection
+// ---------------------------------------------------------------------------
+
+export interface AiQualityResult {
+  is_blurry: boolean;
+  closed_eyes: boolean;
+  out_of_focus: boolean;
+  bad_composition: boolean;
+  reason: string;
+}
+
+const QUALITY_PROMPT =
+  'Analyze this photo and respond with ONLY valid JSON (no markdown). Schema: {"is_blurry": boolean, "closed_eyes": boolean, "out_of_focus": boolean, "bad_composition": boolean, "reason": "short English explanation"}. is_blurry=true if image is shaky/motion-blurred. closed_eyes=true if any visible main subject has eyes shut. out_of_focus=true if main subject is not in focus. bad_composition=true if subject is awkwardly cut off or off-frame.';
+
+export async function analyzeQuality(base64Image: string): Promise<AiQualityResult> {
+  const provider = getAiProvider();
+  const model = getAiModel(provider);
+  const apiKey = await getAiApiKey(provider);
+  if (!apiKey) throw new Error("AI API key not configured");
+  const raw = await callVisionModel(provider, model, apiKey, base64Image, QUALITY_PROMPT, 200);
+  return parseQualityResponse(raw);
+}
+
+function parseQualityResponse(content: string): AiQualityResult {
+  const m = content.match(/\{[\s\S]*\}/);
+  if (!m) throw new Error("Failed to parse AI quality response");
+  const parsed = JSON.parse(m[0]) as Partial<AiQualityResult>;
+  return {
+    is_blurry: !!parsed.is_blurry,
+    closed_eyes: !!parsed.closed_eyes,
+    out_of_focus: !!parsed.out_of_focus,
+    bad_composition: !!parsed.bad_composition,
+    reason: typeof parsed.reason === "string" ? parsed.reason : "",
+  };
+}
+
+// ---------------------------------------------------------------------------
+// Person merge suggestion: ask vision model whether two faces are same person
+// ---------------------------------------------------------------------------
+
+export interface AiMergeDecision {
+  same_person: boolean;
+  confidence: number;
+  reason: string;
+}
+
+const MERGE_PROMPT =
+  'You are comparing two photos that may show the same person at different angles, lighting, or moments. Look at face structure, hair, clothing, accessories, and any other distinctive features. Respond with ONLY valid JSON (no markdown): {"same_person": boolean, "confidence": number 0-1, "reason": "short English explanation"}. Be permissive: if facial features look similar enough that a human reviewer would say "yes, probably same person", say true.';
+
+export async function compareTwoFaces(
+  base64A: string,
+  base64B: string,
+): Promise<AiMergeDecision> {
+  const provider = getAiProvider();
+  const model = getAiModel(provider);
+  const apiKey = await getAiApiKey(provider);
+  if (!apiKey) throw new Error("AI API key not configured");
+  const raw = await callVisionModelTwoImages(provider, model, apiKey, base64A, base64B, MERGE_PROMPT, 200);
+  const m = raw.match(/\{[\s\S]*\}/);
+  if (!m) throw new Error("Failed to parse AI merge response");
+  const parsed = JSON.parse(m[0]) as Partial<AiMergeDecision>;
+  return {
+    same_person: !!parsed.same_person,
+    confidence: typeof parsed.confidence === "number" ? parsed.confidence : 0,
+    reason: typeof parsed.reason === "string" ? parsed.reason : "",
+  };
+}
+
+// ---------------------------------------------------------------------------
+// Internal: low-level vision-model callers (single + paired image)
+// ---------------------------------------------------------------------------
+
+async function callVisionModel(
+  provider: AIProvider,
+  model: string,
+  apiKey: string,
+  base64Image: string,
+  prompt: string,
+  maxTokens: number,
+): Promise<string> {
+  if (provider === "anthropic") {
+    const response = await fetch("https://api.anthropic.com/v1/messages", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        "x-api-key": apiKey,
+        "anthropic-version": "2023-06-01",
+        "anthropic-dangerous-direct-browser-access": "true",
+      },
+      body: JSON.stringify({
+        model,
+        max_tokens: maxTokens,
+        messages: [
+          {
+            role: "user",
+            content: [
+              { type: "image", source: { type: "base64", media_type: "image/jpeg", data: base64Image } },
+              { type: "text", text: prompt },
+            ],
+          },
+        ],
+      }),
+    });
+    if (!response.ok) throw new Error(`Anthropic API error: ${response.status} ${await response.text()}`);
+    const data = (await response.json()) as { content?: Array<{ text?: string }> };
+    return data.content?.[0]?.text ?? "";
+  }
+  if (provider === "gemini") {
+    const response = await fetch(
+      `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent`,
+      {
+        method: "POST",
+        headers: { "Content-Type": "application/json", "x-goog-api-key": apiKey },
+        body: JSON.stringify({
+          contents: [
+            {
+              parts: [
+                { text: prompt },
+                { inline_data: { mime_type: "image/jpeg", data: base64Image } },
+              ],
+            },
+          ],
+        }),
+      },
+    );
+    if (!response.ok) throw new Error(`Gemini API error: ${response.status} ${await response.text()}`);
+    const data = (await response.json()) as {
+      candidates?: Array<{ content?: { parts?: Array<{ text?: string }> } }>;
+    };
+    return data.candidates?.[0]?.content?.parts?.[0]?.text ?? "";
+  }
+  // OpenAI-compatible
+  const cfg = providerConfig(provider);
+  const response = await fetch(`${cfg.baseUrl}/chat/completions`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json", Authorization: `Bearer ${apiKey}` },
+    body: JSON.stringify({
+      model,
+      messages: [
+        {
+          role: "user",
+          content: [
+            { type: "text", text: prompt },
+            { type: "image_url", image_url: { url: `data:image/jpeg;base64,${base64Image}`, detail: "low" } },
+          ],
+        },
+      ],
+      max_tokens: maxTokens,
+    }),
+  });
+  if (!response.ok) throw new Error(`Provider API error: ${response.status} ${await response.text()}`);
+  const data = (await response.json()) as { choices?: Array<{ message?: { content?: string } }> };
+  return data.choices?.[0]?.message?.content ?? "";
+}
+
+async function callVisionModelTwoImages(
+  provider: AIProvider,
+  model: string,
+  apiKey: string,
+  base64A: string,
+  base64B: string,
+  prompt: string,
+  maxTokens: number,
+): Promise<string> {
+  if (provider === "anthropic") {
+    const response = await fetch("https://api.anthropic.com/v1/messages", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        "x-api-key": apiKey,
+        "anthropic-version": "2023-06-01",
+        "anthropic-dangerous-direct-browser-access": "true",
+      },
+      body: JSON.stringify({
+        model,
+        max_tokens: maxTokens,
+        messages: [
+          {
+            role: "user",
+            content: [
+              { type: "image", source: { type: "base64", media_type: "image/jpeg", data: base64A } },
+              { type: "image", source: { type: "base64", media_type: "image/jpeg", data: base64B } },
+              { type: "text", text: prompt },
+            ],
+          },
+        ],
+      }),
+    });
+    if (!response.ok) throw new Error(`Anthropic API error: ${response.status} ${await response.text()}`);
+    const data = (await response.json()) as { content?: Array<{ text?: string }> };
+    return data.content?.[0]?.text ?? "";
+  }
+  if (provider === "gemini") {
+    const response = await fetch(
+      `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent`,
+      {
+        method: "POST",
+        headers: { "Content-Type": "application/json", "x-goog-api-key": apiKey },
+        body: JSON.stringify({
+          contents: [
+            {
+              parts: [
+                { text: prompt },
+                { inline_data: { mime_type: "image/jpeg", data: base64A } },
+                { inline_data: { mime_type: "image/jpeg", data: base64B } },
+              ],
+            },
+          ],
+        }),
+      },
+    );
+    if (!response.ok) throw new Error(`Gemini API error: ${response.status} ${await response.text()}`);
+    const data = (await response.json()) as {
+      candidates?: Array<{ content?: { parts?: Array<{ text?: string }> } }>;
+    };
+    return data.candidates?.[0]?.content?.parts?.[0]?.text ?? "";
+  }
+  const cfg = providerConfig(provider);
+  const response = await fetch(`${cfg.baseUrl}/chat/completions`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json", Authorization: `Bearer ${apiKey}` },
+    body: JSON.stringify({
+      model,
+      messages: [
+        {
+          role: "user",
+          content: [
+            { type: "text", text: prompt },
+            { type: "image_url", image_url: { url: `data:image/jpeg;base64,${base64A}`, detail: "low" } },
+            { type: "image_url", image_url: { url: `data:image/jpeg;base64,${base64B}`, detail: "low" } },
+          ],
+        },
+      ],
+      max_tokens: maxTokens,
+    }),
+  });
+  if (!response.ok) throw new Error(`Provider API error: ${response.status} ${await response.text()}`);
+  const data = (await response.json()) as { choices?: Array<{ message?: { content?: string } }> };
+  return data.choices?.[0]?.message?.content ?? "";
+}

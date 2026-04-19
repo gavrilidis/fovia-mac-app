@@ -9,11 +9,79 @@ import { ProgressView } from "./components/ProgressView";
 import { GalleryView } from "./components/GalleryView";
 import { ActivationView } from "./components/ActivationView";
 import { ResumeDialog } from "./components/ResumeDialog";
+import { RestartDialog } from "./components/RestartDialog";
 import { ScanSummaryDialog } from "./components/ScanSummaryDialog";
+import { SettingsPanel } from "./components/SettingsPanel";
+import { HelpDialog } from "./components/HelpDialog";
+import { ExportDialog } from "./components/ExportDialog";
 import { groupFacesByIdentity } from "./services/faceGrouping";
-import type { AppView, DownloadProgress, FaceGroup, ScanProgress, ScanProgressRow, ScanResult, ScanSummary, ModelStatus } from "./types";
+import { useI18n } from "./i18n";
+import type { AppView, DownloadProgress, FaceEntry, FaceGroup, ScanProgress, ScanProgressRow, ScanResult, ScanSummary, ModelStatus } from "./types";
+
+// M11: when launched as a sub-window (?window=settings), render only the
+// requested surface in its own native window.
+const SUB_WINDOW = (() => {
+  if (typeof window === "undefined") return null;
+  const params = new URLSearchParams(window.location.search);
+  return params.get("window");
+})();
+
+function SubWindowApp({ name }: { name: string }) {
+  // Close the *current* native window. We use the WebviewWindow handle
+  // (rather than just `getCurrentWindow`) because it's the one that
+  // actually owns the webview rendering this React tree — closing it
+  // disposes of both the OS window and the webview cleanly.
+  const closeSelf = () => {
+    void getCurrentWebviewWindow()
+      .close()
+      .catch((err) => console.error("close window failed", err));
+  };
+  if (name === "settings") {
+    return <SettingsPanel onClose={closeSelf} variant="window" />;
+  }
+  if (name === "help") {
+    // Render the same HelpDialog used in-app, but as the sole content of
+    // its own native window so users can keep it open beside the gallery.
+    return <HelpDialog onClose={closeSelf} variant="window" />;
+  }
+  if (name === "export") {
+    // Read the file selection / face groups stashed by the gallery before
+    // it asked Tauri to open this window. Falls back to closing if the
+    // payload is missing (rare — usually means the gallery crashed).
+    let payload: { filePaths: string[]; groups: FaceGroup[] } = { filePaths: [], groups: [] };
+    try {
+      const raw = localStorage.getItem("faceflow-export-payload");
+      if (raw) payload = JSON.parse(raw);
+    } catch (e) {
+      console.error("invalid export payload", e);
+    }
+    if (payload.filePaths.length === 0) {
+      return (
+        <div className="flex h-screen w-screen items-center justify-center bg-surface text-fg-muted">
+          No selection
+        </div>
+      );
+    }
+    return (
+      <ExportDialog
+        filePaths={payload.filePaths}
+        groups={payload.groups}
+        onClose={closeSelf}
+        variant="window"
+      />
+    );
+  }
+  return (
+    <div className="flex h-screen w-screen items-center justify-center bg-surface text-fg-muted">
+      Unknown sub-window: {name}
+    </div>
+  );
+}
+
+export { SUB_WINDOW, SubWindowApp };
 
 function App() {
+  const { t } = useI18n();
   const [view, setView] = useState<AppView>("loading");
   const [activated, setActivated] = useState<boolean | null>(null);
   const [, setModelsReady] = useState(false);
@@ -29,24 +97,34 @@ function App() {
     processed: 0,
     current_file: "",
     faces_found: 0,
+    unique_persons: 0,
     errors: 0,
     last_error: "",
     phase: "scanning",
     files_read: 0,
+    previously_processed: 0,
+    total_in_folder: 0,
   });
   const [faceGroups, setFaceGroups] = useState<FaceGroup[]>([]);
   const [noFaceFiles, setNoFaceFiles] = useState<string[]>([]);
+  const [lowQualityFaces, setLowQualityFaces] = useState<FaceEntry[]>([]);
   const [error, setError] = useState<string | null>(null);
   const [resumePrompt, setResumePrompt] = useState<{
     folderPath: string;
     detectionThreshold: number;
     row: ScanProgressRow;
   } | null>(null);
+  const [restartPrompt, setRestartPrompt] = useState<{
+    folderPath: string;
+    detectionThreshold: number;
+    scannedCount: number;
+  } | null>(null);
   const [scanSummary, setScanSummary] = useState<ScanSummary | null>(null);
-  const [faceMatchThreshold] = useState<number>(() => {
+  const [isResumeScan, setIsResumeScan] = useState(false);
+  const [faceMatchThreshold, setFaceMatchThreshold] = useState<number>(() => {
     const value = localStorage.getItem("faceflow-face-threshold");
-    const parsed = value ? Number(value) : 0.38;
-    return Number.isFinite(parsed) ? parsed : 0.38;
+    const parsed = value ? Number(value) : 0.32;
+    return Number.isFinite(parsed) ? parsed : 0.32;
   });
 
   const handleRetryModels = useCallback(async () => {
@@ -115,16 +193,21 @@ function App() {
   const runScan = useCallback(
     async (folderPath: string, detectionThreshold: number, resume: boolean) => {
       setView("progress");
+      setIsResumeScan(resume);
       setError(null);
+      localStorage.setItem("faceflow-last-folder", folderPath);
       setProgress({
         total_files: 0,
         processed: 0,
         current_file: "Starting...",
         faces_found: 0,
+        unique_persons: 0,
         errors: 0,
         last_error: "",
         phase: "scanning",
         files_read: 0,
+        previously_processed: 0,
+        total_in_folder: 0,
       });
 
       try {
@@ -134,16 +217,30 @@ function App() {
           resume,
         });
 
-        const groups = await groupFacesByIdentity(result.faces, faceMatchThreshold);
+        const { groups, lowQualityFaces: lowFaces } = await groupFacesByIdentity(result.faces, faceMatchThreshold);
         setFaceGroups(groups);
         setNoFaceFiles(result.no_face_files);
-        if (result.skipped_files.length > 0 || result.processed_count < result.total_files) {
+        setLowQualityFaces(lowFaces);
+        if (
+          result.skipped_files.length > 0 ||
+          result.processed_count < result.total_files ||
+          result.was_cancelled
+        ) {
           setScanSummary({
             folder_path: folderPath,
             total_files: result.total_files,
             processed_count: result.processed_count,
             skipped_files: result.skipped_files,
           });
+        }
+        if (result.was_cancelled) {
+          // Progress is durable thanks to the 10-file checkpoint, so the
+          // user can resume this same folder later from where they stopped.
+          alert(
+            t("scan_stopped_body")
+              .replace("{processed}", String(result.processed_count))
+              .replace("{total}", String(result.total_files)),
+          );
         }
         setView("gallery");
       } catch (err) {
@@ -165,6 +262,16 @@ function App() {
           setResumePrompt({ folderPath, detectionThreshold, row: prior });
           return;
         }
+        // No in-progress checkpoint, but the folder may have been fully
+        // scanned previously. Ask the user whether to keep the saved data
+        // (incremental re-scan will skip unchanged files anyway) or wipe.
+        const scannedCount = await invoke<number>("count_folder_scanned_files", {
+          folderPath,
+        });
+        if (scannedCount > 0) {
+          setRestartPrompt({ folderPath, detectionThreshold, scannedCount });
+          return;
+        }
       } catch {
         // Non-critical — proceed with a fresh scan.
       }
@@ -172,6 +279,26 @@ function App() {
     },
     [runScan],
   );
+
+  const handleRestartContinue = useCallback(async () => {
+    if (!restartPrompt) return;
+    const { folderPath, detectionThreshold } = restartPrompt;
+    setRestartPrompt(null);
+    // Incremental scan: scanner skips files whose hash matches `scanned_files`.
+    await runScan(folderPath, detectionThreshold, false);
+  }, [restartPrompt, runScan]);
+
+  const handleRestartFresh = useCallback(async () => {
+    if (!restartPrompt) return;
+    const { folderPath, detectionThreshold } = restartPrompt;
+    setRestartPrompt(null);
+    try {
+      await invoke("reset_folder_data", { folderPath });
+    } catch {
+      // Ignore — fresh scan will overwrite what's left.
+    }
+    await runScan(folderPath, detectionThreshold, false);
+  }, [restartPrompt, runScan]);
 
   const handleResumeContinue = useCallback(async () => {
     if (!resumePrompt) return;
@@ -191,6 +318,137 @@ function App() {
     }
     await runScan(folderPath, detectionThreshold, false);
   }, [resumePrompt, runScan]);
+
+  // Live re-clustering when the user changes Face Matching Sensitivity in
+  // Settings. Without this, the slider would only affect the *next* scan
+  // and feel completely dead on already-loaded libraries.
+  useEffect(() => {
+    const handler = async (e: Event) => {
+      const ce = e as CustomEvent<number>;
+      const newThreshold = typeof ce.detail === "number" ? ce.detail : faceMatchThreshold;
+      setFaceMatchThreshold(newThreshold);
+      // Re-flatten current faces (across groups + low-quality bin) and
+      // re-run clustering with the new threshold.
+      const allFaces: FaceEntry[] = [
+        ...faceGroups.flatMap((g) => g.members),
+        ...lowQualityFaces,
+      ];
+      if (allFaces.length === 0) return;
+      try {
+        const { groups, lowQualityFaces: lq } = await groupFacesByIdentity(allFaces, newThreshold);
+        setFaceGroups(groups);
+        setLowQualityFaces(lq);
+      } catch (err) {
+        console.warn("Re-clustering failed:", err);
+      }
+    };
+    window.addEventListener("faceflow:face-threshold-changed", handler);
+    return () => window.removeEventListener("faceflow:face-threshold-changed", handler);
+  }, [faceGroups, lowQualityFaces, faceMatchThreshold]);
+
+  // When the user resets scan data from Settings, return to the dropzone.
+  useEffect(() => {
+    const handler = () => {
+      setView("dropzone");
+      setFaceGroups([]);
+      setNoFaceFiles([]);
+      setLowQualityFaces([]);
+      setError(null);
+      setProgress({ total_files: 0, processed: 0, current_file: "", faces_found: 0, unique_persons: 0, errors: 0, last_error: "", phase: "scanning", files_read: 0, previously_processed: 0, total_in_folder: 0 });
+    };
+    window.addEventListener("faceflow:reset-scan", handler);
+    return () => window.removeEventListener("faceflow:reset-scan", handler);
+  }, []);
+
+  // Bridge native macOS menu events into DOM CustomEvents so any nested
+  // component (GalleryView, SettingsPanel, etc.) can subscribe without
+  // having to talk to Tauri directly. The native menu emits ids like
+  // "preferences", "new_scan", "export", etc.
+  useEffect(() => {
+    // React StrictMode mounts effects twice in dev. The previous version
+    // assigned the unlisten function to a `let` variable from `.then(...)`,
+    // which meant the first cleanup run before the promise resolved and the
+    // listener leaked — registering the menu handler twice. Result: every
+    // menu click (notably "Report an Issue…") fired twice, opening two
+    // browser tabs. The pattern below cancels the in-flight registration
+    // synchronously even before the promise resolves.
+    let cancelled = false;
+    let unlistenFn: (() => void) | undefined;
+    listen<string>("faceflow:menu", (event) => {
+      const id = event.payload;
+      // App-level shortcuts that don't depend on gallery state.
+      if (id === "new_scan") {
+        setView("dropzone");
+        return;
+      }
+      if (id === "reset_scan") {
+        const folder = localStorage.getItem("faceflow-last-folder");
+        if (folder) {
+          invoke("reset_folder_data", { folderPath: folder })
+            .then(() => {
+              localStorage.removeItem("faceflow-last-folder");
+              window.dispatchEvent(new Event("faceflow:reset-scan"));
+            })
+            .catch(() => {
+              window.dispatchEvent(new Event("faceflow:reset-scan"));
+            });
+        }
+        return;
+      }
+      if (id === "report_issue") {
+        // Single, idempotent open. The Rust `open_url` command shells out
+        // to the OS handler which is reliable on macOS — no fallback to
+        // `window.open` (that previously caused a *second* tab to open
+        // when StrictMode double-fired the listener).
+        invoke("open_url", { url: "https://github.com/gavrilidis/faceflow/issues/new" }).catch(
+          (err) => console.error("[faceflow] open_url failed:", err),
+        );
+        return;
+      }
+      // M11: open Settings in its own native window instead of as an in-app
+      // modal (matches macOS conventions). Falls back to the in-app modal
+      // if the window can't be created.
+      if (id === "preferences") {
+        invoke("open_app_window", {
+          name: "settings",
+          title: "Settings",
+          width: 720,
+          height: 720,
+        }).catch(() => {
+          window.dispatchEvent(new CustomEvent("faceflow:menu", { detail: "preferences" }));
+        });
+        return;
+      }
+      // M11+: open Help in its own native window (matches the Settings
+      // pattern). Falls back to the in-app dialog if the window can't
+      // be created (e.g. the user is on a build without webview support).
+      if (id === "show_help") {
+        invoke("open_app_window", {
+          name: "help",
+          title: "FaceFlow Help",
+          width: 720,
+          height: 600,
+        }).catch(() => {
+          window.dispatchEvent(new CustomEvent("faceflow:menu", { detail: "show_help" }));
+        });
+        return;
+      }
+      // Everything else is forwarded to whichever component is interested.
+      window.dispatchEvent(new CustomEvent("faceflow:menu", { detail: id }));
+    }).then((fn) => {
+      if (cancelled) {
+        // Effect was already torn down (StrictMode double-mount): unlisten
+        // immediately so we never end up with two live subscriptions.
+        fn();
+      } else {
+        unlistenFn = fn;
+      }
+    });
+    return () => {
+      cancelled = true;
+      if (unlistenFn) unlistenFn();
+    };
+  }, []);
 
   useEffect(() => {
     const unlisten = listen<ScanProgress>("scan-progress", (event) => {
@@ -265,8 +523,9 @@ function App() {
     setView("dropzone");
     setFaceGroups([]);
     setNoFaceFiles([]);
+    setLowQualityFaces([]);
     setError(null);
-    setProgress({ total_files: 0, processed: 0, current_file: "", faces_found: 0, errors: 0, last_error: "", phase: "scanning", files_read: 0 });
+    setProgress({ total_files: 0, processed: 0, current_file: "", faces_found: 0, unique_persons: 0, errors: 0, last_error: "", phase: "scanning", files_read: 0, previously_processed: 0, total_in_folder: 0 });
   }, []);
 
   const handleWindowDrag = useCallback((e: React.MouseEvent) => {
@@ -460,8 +719,8 @@ function App() {
         </div>
       )}
       {view === "dropzone" && <DropZone onFolderSelected={handleFolderSelected} />}
-      {view === "progress" && <ProgressView progress={progress} />}
-      {view === "gallery" && <GalleryView groups={faceGroups} noFaceFiles={noFaceFiles} onReset={handleReset} />}
+      {view === "progress" && <ProgressView progress={progress} isResume={isResumeScan} />}
+      {view === "gallery" && <GalleryView groups={faceGroups} noFaceFiles={noFaceFiles} lowQualityFaces={lowQualityFaces} onReset={handleReset} />}
 
       {resumePrompt && (
         <ResumeDialog
@@ -471,6 +730,16 @@ function App() {
           onResume={handleResumeContinue}
           onRestart={handleResumeRestart}
           onCancel={() => setResumePrompt(null)}
+        />
+      )}
+
+      {restartPrompt && (
+        <RestartDialog
+          folderPath={restartPrompt.folderPath}
+          scannedCount={restartPrompt.scannedCount}
+          onContinue={handleRestartContinue}
+          onFresh={handleRestartFresh}
+          onCancel={() => setRestartPrompt(null)}
         />
       )}
 

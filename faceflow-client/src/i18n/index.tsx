@@ -15,8 +15,6 @@ interface I18nContextValue {
   theme: Theme;
   setTheme: (theme: Theme) => void;
   resolvedTheme: "dark" | "light";
-  glassIntensity: number;
-  setGlassIntensity: (v: number) => void;
 }
 
 const I18nContext = createContext<I18nContextValue | null>(null);
@@ -42,11 +40,6 @@ export function I18nProvider({ children }: { children: ReactNode }) {
 
   const [systemTheme, setSystemTheme] = useState<"dark" | "light">(getSystemTheme);
 
-  const [glassIntensity, setGlassIntensityState] = useState<number>(() => {
-    const stored = localStorage.getItem("faceflow-glass");
-    return stored ? parseFloat(stored) : 0.7;
-  });
-
   const resolvedTheme = theme === "system" ? systemTheme : theme;
 
   // Listen for system theme changes
@@ -62,15 +55,22 @@ export function I18nProvider({ children }: { children: ReactNode }) {
     document.documentElement.setAttribute("data-theme", resolvedTheme);
   }, [resolvedTheme]);
 
-  // Apply glass intensity
+  // Sync theme/locale when another native window writes to localStorage
+  // (e.g. Settings sub-window calls setTheme → main window picks it up).
   useEffect(() => {
-    const blur = Math.round(glassIntensity * 30);
-    const sat = Math.round(100 + glassIntensity * 80);
-    const opacity = (0.5 + glassIntensity * 0.35).toFixed(2);
-    document.documentElement.style.setProperty("--glass-blur", `${blur}px`);
-    document.documentElement.style.setProperty("--glass-saturation", `${sat}%`);
-    document.documentElement.style.setProperty("--glass-opacity", opacity);
-  }, [glassIntensity]);
+    const handler = (e: StorageEvent) => {
+      if (e.key === "faceflow-theme" && e.newValue) {
+        const v = e.newValue;
+        if (v === "dark" || v === "light" || v === "system") setThemeState(v);
+      }
+      if (e.key === "faceflow-locale" && e.newValue) {
+        const v = e.newValue;
+        if (v === "en" || v === "ru") setLocaleState(v as Locale);
+      }
+    };
+    window.addEventListener("storage", handler);
+    return () => window.removeEventListener("storage", handler);
+  }, []);
 
   const setLocale = useCallback((l: Locale) => {
     setLocaleState(l);
@@ -80,11 +80,6 @@ export function I18nProvider({ children }: { children: ReactNode }) {
   const setTheme = useCallback((t: Theme) => {
     setThemeState(t);
     localStorage.setItem("faceflow-theme", t);
-  }, []);
-
-  const setGlassIntensity = useCallback((v: number) => {
-    setGlassIntensityState(v);
-    localStorage.setItem("faceflow-glass", String(v));
   }, []);
 
   const t = useCallback(
@@ -101,7 +96,7 @@ export function I18nProvider({ children }: { children: ReactNode }) {
   );
 
   return (
-    <I18nContext.Provider value={{ locale, setLocale, t, theme, setTheme, resolvedTheme, glassIntensity, setGlassIntensity }}>
+    <I18nContext.Provider value={{ locale, setLocale, t, theme, setTheme, resolvedTheme }}>
       {children}
     </I18nContext.Provider>
   );

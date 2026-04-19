@@ -1,6 +1,7 @@
 use std::collections::HashSet;
 use std::path::PathBuf;
-use std::sync::Mutex;
+use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::{Arc, Mutex};
 
 use base64::{engine::general_purpose::STANDARD as BASE64, Engine};
 use r2d2::PooledConnection;
@@ -11,16 +12,26 @@ use sysinfo::Disks;
 use tauri::{AppHandle, Emitter, Manager};
 
 use crate::services::{
-    activation, database, extractor, inference, inference::FaceModels, scanner, xmp,
+    activation, clustering::OnlineClusterer, database, extractor, inference, inference::FaceModels,
+    scanner, xmp,
 };
 
 /// Maximum retries for transient inference failures.
 const MAX_RETRIES: u32 = 3;
 
+/// Persist scan progress to SQLite this often (in number of processed files).
+/// A small value protects against losing work after a crash or forced quit
+/// while keeping write amplification reasonable.
+const CHECKPOINT_EVERY_N_FILES: usize = 10;
+
 // ---- Shared state managed by Tauri ----
 
 pub struct DbState(pub database::DbPool);
 pub struct ModelState(pub Mutex<Option<FaceModels>>);
+/// Shared atomic flag toggled by `cancel_scan`. The active scan loop polls
+/// this flag at every iteration and stops gracefully (saving progress and
+/// emitting a final summary) when it is set to `true`.
+pub struct ScanCancellation(pub Arc<AtomicBool>);
 
 fn get_db_connection(app: &AppHandle) -> Result<PooledConnection<SqliteConnectionManager>, String> {
     let db = app.state::<DbState>();
@@ -32,15 +43,29 @@ fn get_db_connection(app: &AppHandle) -> Result<PooledConnection<SqliteConnectio
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
 pub struct ScanProgress {
+    /// Number of files in the *current run* (i.e. new/changed files only).
     pub total_files: usize,
+    /// Files completed in the current run.
     pub processed: usize,
     pub current_file: String,
+    /// Total face detections so far in the current run.
     pub faces_found: usize,
+    /// Live estimate of unique persons (online single-pass clustering).
+    /// The authoritative count is computed at scan end with the full HAC
+    /// pipeline; this is only a UI hint and may differ slightly.
+    pub unique_persons: usize,
     pub errors: usize,
     pub last_error: String,
     /// "scanning" | "compressing" | "detecting"
     pub phase: String,
     pub files_read: usize,
+    /// Files that already had cached results (skipped because the file hash
+    /// matched the previous scan). Useful so the UI can show
+    /// "Previously processed: N · New: M · Total: N+M" instead of just
+    /// the new-files count.
+    pub previously_processed: usize,
+    /// Total number of image files discovered in the folder (cached + new).
+    pub total_in_folder: usize,
 }
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
@@ -64,6 +89,10 @@ pub struct ScanResult {
     pub no_face_files: Vec<String>,
     pub processed_count: usize,
     pub skipped_files: Vec<String>,
+    /// True when the user pressed Stop (or a downstream `cancel_scan` was
+    /// invoked). Frontend uses this to surface a "Stopped — you can resume
+    /// later" banner instead of the normal completion summary.
+    pub was_cancelled: bool,
 }
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
@@ -221,6 +250,147 @@ pub fn read_photo_base64(file_path: String) -> Result<String, String> {
 
     let image_bytes = extractor::extract_image_bytes(path)?;
     Ok(BASE64.encode(&image_bytes))
+}
+
+/// Open an arbitrary URL with the system default handler. Used by the
+/// "Report an Issue…" menu item to launch the browser at the GitHub
+/// issue tracker.
+#[tauri::command]
+pub fn open_url(url: String) -> Result<(), String> {
+    if !url.starts_with("https://") && !url.starts_with("http://") {
+        return Err("Refusing to open non-http(s) URL".into());
+    }
+    #[cfg(target_os = "macos")]
+    {
+        std::process::Command::new("open")
+            .arg(&url)
+            .spawn()
+            .map_err(|e| format!("Failed to open URL: {e}"))?;
+    }
+    #[cfg(not(target_os = "macos"))]
+    {
+        let _ = url;
+    }
+    Ok(())
+}
+
+/// Aggregate sizes (bytes) of FaceFlow's local storage. Surfaces in the
+/// Settings → Storage panel so users can see how much disk the app uses.
+#[derive(Debug, Serialize)]
+pub struct StorageStats {
+    pub db_bytes: u64,
+    pub models_bytes: u64,
+    pub exiftool_bytes: u64,
+    pub other_bytes: u64,
+    pub total_bytes: u64,
+    pub app_data_path: String,
+}
+
+fn dir_size_recursive(path: &std::path::Path) -> u64 {
+    let mut total = 0u64;
+    let Ok(entries) = std::fs::read_dir(path) else {
+        return 0;
+    };
+    for entry in entries.flatten() {
+        let Ok(meta) = entry.metadata() else { continue };
+        if meta.is_file() {
+            total = total.saturating_add(meta.len());
+        } else if meta.is_dir() {
+            total = total.saturating_add(dir_size_recursive(&entry.path()));
+        }
+    }
+    total
+}
+
+#[tauri::command]
+pub fn get_storage_stats(app: AppHandle) -> Result<StorageStats, String> {
+    let app_data = app
+        .path()
+        .app_data_dir()
+        .map_err(|e| format!("Failed to get app data dir: {e}"))?;
+
+    let db_bytes = std::fs::metadata(app_data.join("faceflow.db"))
+        .map(|m| m.len())
+        .unwrap_or(0);
+    let models_bytes = dir_size_recursive(&app_data.join("models"));
+    let exiftool_bytes = dir_size_recursive(&app_data.join("exiftool"));
+    let total_bytes = dir_size_recursive(&app_data);
+    let other_bytes = total_bytes
+        .saturating_sub(db_bytes)
+        .saturating_sub(models_bytes)
+        .saturating_sub(exiftool_bytes);
+
+    Ok(StorageStats {
+        db_bytes,
+        models_bytes,
+        exiftool_bytes,
+        other_bytes,
+        total_bytes,
+        app_data_path: app_data.to_string_lossy().to_string(),
+    })
+}
+
+/// Run SQLite VACUUM to reclaim free pages after large deletes (e.g. after
+/// the user resets one or more libraries). Returns the number of bytes
+/// reclaimed (negative if the file actually grew, which can happen briefly
+/// while the rebuild journal is around).
+#[tauri::command]
+pub fn vacuum_database(app: AppHandle) -> Result<i64, String> {
+    let conn = get_db_connection(&app)?;
+    let app_data = app
+        .path()
+        .app_data_dir()
+        .map_err(|e| format!("Failed to get app data dir: {e}"))?;
+    let db_path = app_data.join("faceflow.db");
+    let before = std::fs::metadata(&db_path).map(|m| m.len()).unwrap_or(0) as i64;
+    conn.execute_batch("VACUUM;")
+        .map_err(|e| format!("VACUUM failed: {e}"))?;
+    let after = std::fs::metadata(&db_path).map(|m| m.len()).unwrap_or(0) as i64;
+    Ok(before - after)
+}
+
+/// Reveal the FaceFlow application data directory in Finder so users can
+/// inspect or back up the SQLite database, downloaded models, etc.
+#[tauri::command]
+pub fn reveal_app_data_in_finder(app: AppHandle) -> Result<(), String> {
+    let app_data = app
+        .path()
+        .app_data_dir()
+        .map_err(|e| format!("Failed to get app data dir: {e}"))?;
+    std::process::Command::new("open")
+        .arg(&app_data)
+        .spawn()
+        .map_err(|e| format!("Failed to open Finder: {e}"))?;
+    Ok(())
+}
+
+/// Open a sub-window of the main webview pointed at `?window=<name>`.
+/// The frontend reads that query param at startup and renders only the
+/// matching surface (settings, export, etc.) — see `App.tsx`. Re-opens
+/// the existing window if it's already there.
+#[tauri::command]
+pub fn open_app_window(
+    app: AppHandle,
+    name: String,
+    title: String,
+    width: f64,
+    height: f64,
+) -> Result<(), String> {
+    use tauri::WebviewWindowBuilder;
+    let label = format!("faceflow-{name}");
+    if let Some(existing) = app.get_webview_window(&label) {
+        let _ = existing.set_focus();
+        return Ok(());
+    }
+    let url = tauri::WebviewUrl::App(format!("index.html?window={name}").into());
+    WebviewWindowBuilder::new(&app, &label, url)
+        .title(&title)
+        .inner_size(width, height)
+        .min_inner_size(480.0, 360.0)
+        .resizable(true)
+        .build()
+        .map_err(|e| format!("Failed to open window: {e}"))?;
+    Ok(())
 }
 
 // ── Activation commands ──────────────────────────────────────────────
@@ -688,6 +858,7 @@ pub fn load_saved_faces(app: AppHandle, folder_path: String) -> Result<ScanResul
         no_face_files: Vec::new(),
         processed_count: 0,
         skipped_files: Vec::new(),
+        was_cancelled: false,
     })
 }
 
@@ -712,6 +883,35 @@ pub fn clear_scan_progress(app: AppHandle, folder_path: String) -> Result<(), St
     database::clear_scan_progress(&conn, &folder_path)
 }
 
+/// Completely erase all scan data for a folder: faces, metadata, tags, file
+/// hashes, scan records, and resume progress. Returns the number of files
+/// whose hashes were removed (a rough proxy for "files that were scanned").
+#[tauri::command]
+pub fn reset_folder_data(app: AppHandle, folder_path: String) -> Result<u64, String> {
+    let conn = get_db_connection(&app)?;
+    log::info!("Resetting all scan data for folder: {folder_path}");
+    database::reset_folder_data(&conn, &folder_path)
+}
+
+/// Count how many files were previously scanned in this folder. Used by the
+/// frontend to decide whether to prompt the user before re-scanning.
+#[tauri::command]
+pub fn count_folder_scanned_files(app: AppHandle, folder_path: String) -> Result<u64, String> {
+    let conn = get_db_connection(&app)?;
+    database::count_folder_scanned_files(&conn, &folder_path)
+}
+
+/// Request a graceful cancellation of the in-progress scan. The current file
+/// will finish so its data is consistent, then the loop saves progress and
+/// exits. Calling this when no scan is running is a no-op.
+#[tauri::command]
+pub fn cancel_scan(app: AppHandle) -> Result<(), String> {
+    let state = app.state::<ScanCancellation>();
+    state.0.store(true, Ordering::SeqCst);
+    log::info!("Scan cancellation requested");
+    Ok(())
+}
+
 #[tauri::command]
 pub async fn scan_folder(
     app: AppHandle,
@@ -722,6 +922,13 @@ pub async fn scan_folder(
     let root = PathBuf::from(&folder_path);
     if !root.exists() || !root.is_dir() {
         return Err(format!("Invalid folder: {folder_path}"));
+    }
+
+    // Reset the cancellation flag so a previous Stop does not abort this
+    // run before it even starts.
+    {
+        let cancel = app.state::<ScanCancellation>();
+        cancel.0.store(false, Ordering::SeqCst);
     }
 
     // If the caller is starting a fresh scan, wipe any prior resume state so
@@ -776,6 +983,7 @@ pub async fn scan_folder(
     }
 
     // Emit initial progress so frontend shows ProgressView immediately
+    let cached_count = total_files.saturating_sub(new_file_count);
     emit_progress(
         &app,
         &ScanProgress {
@@ -791,10 +999,13 @@ pub async fn scan_folder(
                 "Loading cached results...".to_string()
             },
             faces_found: 0,
+            unique_persons: 0,
             errors: 0,
             last_error: String::new(),
             phase: "scanning".to_string(),
             files_read: 0,
+            previously_processed: cached_count,
+            total_in_folder: total_files,
         },
     );
     tokio::task::yield_now().await;
@@ -804,6 +1015,22 @@ pub async fn scan_folder(
     let mut error_count = 0usize;
     let mut last_error = String::new();
     let mut skipped_files: Vec<String> = Vec::new();
+    let mut was_cancelled = false;
+    // Online single-pass clusterer feeding the live "Persons" counter in
+    // the UI. Threshold is intentionally a touch looser than the final HAC
+    // pass (0.30 vs 0.32) so it converges from above as more faces arrive.
+    let mut online_persons = OnlineClusterer::new(0.30);
+    // Pre-seed the online clusterer with embeddings already cached for
+    // this folder so the live counter is accurate from the very first
+    // emitted progress event—otherwise resume scans would start from 0.
+    {
+        let conn = get_db_connection(&app)?;
+        if let Ok(rows) = database::load_faces_for_folder(&conn, &folder_path) {
+            for r in &rows {
+                online_persons.add(&r.embedding);
+            }
+        }
+    }
 
     // Seed skipped list from any previously saved progress when resuming so
     // the final summary still surfaces earlier failures.
@@ -829,6 +1056,31 @@ pub async fn scan_folder(
 
     // Process files in batches for progress reporting
     for (file_idx, path) in files_to_scan.iter().enumerate() {
+        // Honor a user-requested cancellation: persist progress so far and
+        // exit gracefully. The current file is *not* started so there's no
+        // partial state to clean up.
+        {
+            let cancel = app.state::<ScanCancellation>();
+            if cancel.0.load(Ordering::SeqCst) {
+                log::info!(
+                    "Scan cancelled by user at {} of {} files",
+                    file_idx,
+                    new_file_count
+                );
+                let conn = get_db_connection(&app)?;
+                let _ = database::upsert_scan_progress(
+                    &conn,
+                    &folder_path,
+                    file_idx,
+                    new_file_count,
+                    &skipped_files,
+                    "in_progress",
+                );
+                was_cancelled = true;
+                break;
+            }
+        }
+
         let filename = path
             .file_name()
             .unwrap_or_default()
@@ -854,10 +1106,13 @@ pub async fn scan_folder(
                 processed,
                 current_file: filename.clone(),
                 faces_found: all_faces.len(),
+                unique_persons: online_persons.len(),
                 errors: error_count,
                 last_error: last_error.clone(),
                 phase: read_phase.to_string(),
                 files_read: file_idx,
+                previously_processed: cached_count,
+                total_in_folder: total_files,
             },
         );
         tokio::task::yield_now().await;
@@ -885,10 +1140,13 @@ pub async fn scan_folder(
                 processed,
                 current_file: filename.clone(),
                 faces_found: all_faces.len(),
+                unique_persons: online_persons.len(),
                 errors: error_count,
                 last_error: last_error.clone(),
                 phase: "detecting".to_string(),
                 files_read: file_idx + 1,
+                previously_processed: cached_count,
+                total_in_folder: total_files,
             },
         );
         tokio::task::yield_now().await;
@@ -981,6 +1239,9 @@ pub async fn scan_folder(
                 detection_score: face.score as f64,
                 preview_base64,
             });
+            // Feed the live persons-count estimator. Done after the face is
+            // pushed so the counter and `faces_found` stay in lock-step.
+            online_persons.add(&face.embedding);
         }
 
         // Mark file as scanned
@@ -1004,8 +1265,12 @@ pub async fn scan_folder(
 
         processed += 1;
 
-        // Checkpoint every 100 files so a crash can be resumed without losing progress.
-        if processed % 100 == 0 {
+        // Checkpoint every CHECKPOINT_EVERY_N_FILES files so a crash or a
+        // forced quit can be resumed without losing significant progress.
+        // Lower values trade a small amount of write amplification for much
+        // tighter resume granularity (the user can stop at any moment and
+        // never lose more than ~10 files of work).
+        if processed % CHECKPOINT_EVERY_N_FILES == 0 {
             let conn = get_db_connection(&app)?;
             let _ = database::upsert_scan_progress(
                 &conn,
@@ -1073,18 +1338,25 @@ pub async fn scan_folder(
         no_face_files,
         processed_count: processed,
         skipped_files: skipped_files.clone(),
+        was_cancelled,
     };
 
-    // Mark scan as completed and emit summary so the UI can show it.
+    // Mark scan as completed (or keep it `in_progress` if cancelled) and
+    // emit summary so the UI can show it.
     {
         let conn = get_db_connection(&app)?;
+        let final_status = if was_cancelled {
+            "in_progress"
+        } else {
+            "completed"
+        };
         let _ = database::upsert_scan_progress(
             &conn,
             &folder_path,
-            files_to_scan.len(),
+            processed,
             new_file_count,
             &skipped_files,
-            "completed",
+            final_status,
         );
     }
     let _ = app.emit(
@@ -1255,6 +1527,60 @@ pub fn read_exif_metadata(file_path: String) -> Result<ExifData, String> {
         return Err(format!("File not found: {file_path}"));
     }
 
+    // For RAW formats the `kamadak-exif` parser frequently returns empty
+    // results because it cannot walk vendor-specific TIFF/MakerNote layouts
+    // (Fujifilm RAF, Panasonic RW2, etc). Detect RAW up-front and prefer
+    // the exiftool sidecar binary, falling back to the in-process parser
+    // only if exiftool is unavailable.
+    let ext = path
+        .extension()
+        .and_then(|e| e.to_str())
+        .unwrap_or("")
+        .to_ascii_lowercase();
+    let is_raw = matches!(
+        ext.as_str(),
+        "rw2"
+            | "raf"
+            | "arw"
+            | "nef"
+            | "cr2"
+            | "cr3"
+            | "dng"
+            | "orf"
+            | "rwl"
+            | "srw"
+            | "pef"
+            | "x3f"
+            | "3fr"
+            | "iiq"
+    );
+    if is_raw {
+        if let Some((make, model, lens, focal, aperture, shutter, iso, date, w, h)) =
+            crate::services::extractor::read_exif_via_exiftool(path)
+        {
+            // Width/height of the RAW frame are usually reported by exiftool;
+            // fall back to image::image_dimensions only if both are zero.
+            let (width, height) = if w == 0 && h == 0 {
+                image::image_dimensions(path).unwrap_or((0, 0))
+            } else {
+                (w, h)
+            };
+            return Ok(ExifData {
+                camera_make: make,
+                camera_model: model,
+                lens,
+                focal_length: focal,
+                aperture,
+                shutter_speed: shutter,
+                iso,
+                date_taken: date,
+                width,
+                height,
+            });
+        }
+        // exiftool unavailable or failed — fall through to kamadak parser.
+    }
+
     let raw_bytes = std::fs::read(path).map_err(|e| format!("Failed to read file: {e}"))?;
 
     let mut cursor = std::io::Cursor::new(&raw_bytes);
@@ -1355,13 +1681,16 @@ pub async fn export_photos(file_paths: Vec<String>, config: ExportConfig) -> Res
         std::fs::create_dir_all(&dest).map_err(|e| format!("Failed to create destination: {e}"))?;
     }
 
-    // When exporting by faces, build a mapping: file_path → subfolder label
-    let face_folder_map: std::collections::HashMap<String, String> = if config.export_by_faces {
-        let mut map = std::collections::HashMap::new();
+    // When exporting by faces, build mapping: file_path → Vec<subfolder labels>.
+    // A single photo can belong to multiple persons → must be copied into each person's folder.
+    let face_folder_map: std::collections::HashMap<String, Vec<String>> = if config.export_by_faces
+    {
+        let mut map: std::collections::HashMap<String, Vec<String>> =
+            std::collections::HashMap::new();
         if let Some(groups) = &config.face_groups {
             for group in groups {
                 for fp in &group.file_paths {
-                    map.insert(fp.clone(), group.label.clone());
+                    map.entry(fp.clone()).or_default().push(group.label.clone());
                 }
             }
         }
@@ -1370,36 +1699,39 @@ pub async fn export_photos(file_paths: Vec<String>, config: ExportConfig) -> Res
         std::collections::HashMap::new()
     };
 
+    // Build per-source target list: each source path → list of destination directories.
+    let mut total_targets: Vec<(String, Vec<PathBuf>)> = Vec::with_capacity(file_paths.len());
+    for src_path in &file_paths {
+        if config.export_by_faces {
+            let labels = face_folder_map
+                .get(src_path)
+                .cloned()
+                .unwrap_or_else(|| vec!["Unsorted".to_string()]);
+            let mut dirs = Vec::with_capacity(labels.len());
+            for label in labels {
+                let sub = dest.join(&label);
+                if !sub.exists() {
+                    std::fs::create_dir_all(&sub).map_err(|e| {
+                        format!("Failed to create subfolder {}: {e}", sub.display())
+                    })?;
+                }
+                dirs.push(sub);
+            }
+            total_targets.push((src_path.clone(), dirs));
+        } else {
+            total_targets.push((src_path.clone(), vec![dest.clone()]));
+        }
+    }
+
     let mut exported = 0usize;
-    for (i, src_path) in file_paths.iter().enumerate() {
+    let mut idx_counter = 0usize;
+    for (src_path, target_dirs) in &total_targets {
         let src = std::path::Path::new(src_path);
         if !src.exists() {
             log::warn!("Export: skipping missing file {}", src_path);
             continue;
         }
 
-        // Determine output directory (subfolder per face when enabled)
-        let out_dir = if config.export_by_faces {
-            if let Some(label) = face_folder_map.get(src_path) {
-                let sub = dest.join(label);
-                if !sub.exists() {
-                    std::fs::create_dir_all(&sub)
-                        .map_err(|e| format!("Failed to create subfolder: {e}"))?;
-                }
-                sub
-            } else {
-                let sub = dest.join("Unsorted");
-                if !sub.exists() {
-                    std::fs::create_dir_all(&sub)
-                        .map_err(|e| format!("Failed to create Unsorted folder: {e}"))?;
-                }
-                sub
-            }
-        } else {
-            dest.clone()
-        };
-
-        // Determine output filename
         let original_name = src
             .file_stem()
             .unwrap_or_default()
@@ -1411,52 +1743,112 @@ pub async fn export_photos(file_paths: Vec<String>, config: ExportConfig) -> Res
             .to_string_lossy()
             .to_string();
 
-        let output_name = if config.rename_template.is_empty() {
-            format!("{original_name}.{ext}")
-        } else {
-            config
-                .rename_template
-                .replace("{name}", &original_name)
-                .replace("{n}", &format!("{:04}", i + 1))
-                .replace("{ext}", &ext)
-        };
+        // Pre-process image once if processing is needed; otherwise we copy raw bytes per target.
+        let processed_bytes: Option<Vec<u8>> =
+            if config.max_dimension.is_some() || !config.watermark_text.is_empty() {
+                let raw_bytes =
+                    std::fs::read(src).map_err(|e| format!("Failed to read {}: {e}", src_path))?;
+                let mut img = image::load_from_memory(&raw_bytes)
+                    .map_err(|e| format!("Failed to decode {}: {e}", src_path))?;
 
-        let output_path = out_dir.join(&output_name);
+                if let Some(max_dim) = config.max_dimension {
+                    if img.width() > max_dim || img.height() > max_dim {
+                        img = img.resize(max_dim, max_dim, image::imageops::FilterType::Lanczos3);
+                    }
+                }
 
-        if config.max_dimension.is_some() || !config.watermark_text.is_empty() {
-            // Need to process the image (resize / watermark)
-            let raw_bytes =
-                std::fs::read(src).map_err(|e| format!("Failed to read {}: {e}", src_path))?;
-            let mut img = image::load_from_memory(&raw_bytes)
-                .map_err(|e| format!("Failed to decode {}: {e}", src_path))?;
+                if !config.watermark_text.is_empty() {
+                    apply_watermark(&mut img, &config.watermark_text);
+                }
 
-            if let Some(max_dim) = config.max_dimension {
-                if img.width() > max_dim || img.height() > max_dim {
-                    img = img.resize(max_dim, max_dim, image::imageops::FilterType::Lanczos3);
+                let quality = config.jpeg_quality.unwrap_or(90);
+                let mut buf = std::io::Cursor::new(Vec::new());
+                let encoder = image::codecs::jpeg::JpegEncoder::new_with_quality(&mut buf, quality);
+                img.write_with_encoder(encoder)
+                    .map_err(|e| format!("Failed to encode {}: {e}", src_path))?;
+                Some(buf.into_inner())
+            } else {
+                None
+            };
+
+        let mut wrote_any = false;
+        for out_dir in target_dirs {
+            idx_counter += 1;
+
+            let base_output_name = if config.rename_template.is_empty() {
+                format!("{original_name}.{ext}")
+            } else {
+                // Numbering tokens: `{n}` defaults to 4-digit padding for
+                // backwards compatibility, while `{n1}`..`{n6}` lets the
+                // user pick how many leading zeros they want
+                // (e.g. `{n1}` -> 1, 2, 3 ... 10; `{n2}` -> 01, 02 ... 10).
+                let mut name = config.rename_template.clone();
+                name = name.replace("{name}", &original_name);
+                name = name.replace("{ext}", &ext);
+                for width in 1u32..=6u32 {
+                    let token = format!("{{n{width}}}");
+                    if name.contains(&token) {
+                        name = name
+                            .replace(&token, &format!("{:0w$}", idx_counter, w = width as usize));
+                    }
+                }
+                // Fallback: `{n}` keeps the original 4-digit behaviour.
+                name = name.replace("{n}", &format!("{:04}", idx_counter));
+                name
+            };
+
+            // Avoid clobbering existing files: append _2, _3 ... if needed.
+            let mut output_path = out_dir.join(&base_output_name);
+            if output_path.exists() {
+                let stem = std::path::Path::new(&base_output_name)
+                    .file_stem()
+                    .map(|s| s.to_string_lossy().to_string())
+                    .unwrap_or_default();
+                let ext_part = std::path::Path::new(&base_output_name)
+                    .extension()
+                    .map(|s| s.to_string_lossy().to_string())
+                    .unwrap_or_default();
+                let mut n = 2u32;
+                loop {
+                    let candidate = if ext_part.is_empty() {
+                        format!("{stem}_{n}")
+                    } else {
+                        format!("{stem}_{n}.{ext_part}")
+                    };
+                    let candidate_path = out_dir.join(&candidate);
+                    if !candidate_path.exists() {
+                        output_path = candidate_path;
+                        break;
+                    }
+                    n += 1;
+                    if n > 9999 {
+                        return Err(format!(
+                            "Could not find a unique filename in {}",
+                            out_dir.display()
+                        ));
+                    }
                 }
             }
 
-            // Apply watermark text (bottom-right, semi-transparent white)
-            if !config.watermark_text.is_empty() {
-                apply_watermark(&mut img, &config.watermark_text);
+            if let Some(bytes) = &processed_bytes {
+                let jpeg_path = output_path.with_extension("jpg");
+                std::fs::write(&jpeg_path, bytes)
+                    .map_err(|e| format!("Failed to write {}: {e}", jpeg_path.display()))?;
+            } else {
+                std::fs::copy(src, &output_path).map_err(|e| {
+                    format!(
+                        "Failed to copy {} → {}: {e}",
+                        src_path,
+                        output_path.display()
+                    )
+                })?;
             }
-
-            let quality = config.jpeg_quality.unwrap_or(90);
-            let mut buf = std::io::Cursor::new(Vec::new());
-            let encoder = image::codecs::jpeg::JpegEncoder::new_with_quality(&mut buf, quality);
-            img.write_with_encoder(encoder)
-                .map_err(|e| format!("Failed to encode {}: {e}", src_path))?;
-
-            let jpeg_path = output_path.with_extension("jpg");
-            std::fs::write(&jpeg_path, buf.into_inner())
-                .map_err(|e| format!("Failed to write {}: {e}", jpeg_path.display()))?;
-        } else {
-            // Simple copy
-            std::fs::copy(src, &output_path)
-                .map_err(|e| format!("Failed to copy {}: {e}", src_path))?;
+            wrote_any = true;
         }
 
-        exported += 1;
+        if wrote_any {
+            exported += 1;
+        }
     }
 
     Ok(exported)
@@ -1974,4 +2366,99 @@ fn is_eyes_closed(image_bytes: &[u8], landmarks: &[[f32; 2]; 5]) -> bool {
     // closed eyes are smoother (~50-100).
     let _ = (iw, ih); // suppress unused
     avg_eye_var < 80.0
+}
+
+/// Folder-level XMP/JSON summary export (M7).
+///
+/// Writes a single `_FaceFlow_Summary.json` file at `output_dir` (or next
+/// to the photos if empty) containing per-photo rating/label/pick status
+/// plus the list of detected face-group ids. This is intended as a
+/// machine-readable companion to per-file XMP sidecars: external tools
+/// (Lightroom plug-ins, scripts) can ingest the folder summary in one
+/// pass instead of opening every sidecar.
+#[derive(Debug, Serialize)]
+struct FolderSummaryEntry {
+    file_path: String,
+    rating: i32,
+    color_label: String,
+    pick_status: String,
+    keywords: Vec<String>,
+    face_count: i64,
+}
+
+#[derive(Debug, Serialize)]
+struct FolderSummary {
+    generated_at: String,
+    app: String,
+    photo_count: usize,
+    photos: Vec<FolderSummaryEntry>,
+}
+
+#[tauri::command]
+pub fn export_folder_summary(
+    app: AppHandle,
+    file_paths: Vec<String>,
+    output_dir: String,
+) -> Result<String, String> {
+    if file_paths.is_empty() {
+        return Err("No photos to export".into());
+    }
+    let conn = get_db_connection(&app)?;
+    let mut entries: Vec<FolderSummaryEntry> = Vec::with_capacity(file_paths.len());
+
+    for fp in &file_paths {
+        let metadata = database::get_photo_metadata(&conn, fp)?;
+        let (rating, color_label, pick_status) = if let Some(m) = metadata {
+            (m.rating, m.color_label, m.pick_status)
+        } else {
+            (0, "none".to_string(), "none".to_string())
+        };
+        let keywords = database::get_tags_for_photo(&conn, fp)?
+            .into_iter()
+            .map(|(_, name)| name)
+            .collect::<Vec<_>>();
+
+        // Number of detected faces in this photo (clustering is done at
+        // runtime, so we just expose the raw count here).
+        let face_count: i64 = conn
+            .prepare("SELECT COUNT(*) FROM faces WHERE file_path = ?1")
+            .map_err(|e| format!("DB error: {e}"))?
+            .query_row([fp], |row| row.get::<_, i64>(0))
+            .unwrap_or(0);
+
+        entries.push(FolderSummaryEntry {
+            file_path: fp.clone(),
+            rating,
+            color_label,
+            pick_status,
+            keywords,
+            face_count,
+        });
+    }
+
+    let summary = FolderSummary {
+        generated_at: std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .map(|d| d.as_secs().to_string())
+            .unwrap_or_else(|_| "0".into()),
+        app: format!("FaceFlow {}", env!("CARGO_PKG_VERSION")),
+        photo_count: entries.len(),
+        photos: entries,
+    };
+
+    let dir = if output_dir.trim().is_empty() {
+        // Default: alongside the first photo
+        PathBuf::from(&file_paths[0])
+            .parent()
+            .map(|p| p.to_path_buf())
+            .ok_or_else(|| "Failed to resolve output directory".to_string())?
+    } else {
+        PathBuf::from(output_dir)
+    };
+    std::fs::create_dir_all(&dir).map_err(|e| format!("Failed to create output dir: {e}"))?;
+    let out = dir.join("_FaceFlow_Summary.json");
+    let json = serde_json::to_string_pretty(&summary)
+        .map_err(|e| format!("JSON serialize failed: {e}"))?;
+    std::fs::write(&out, json).map_err(|e| format!("Failed to write summary: {e}"))?;
+    Ok(out.to_string_lossy().to_string())
 }

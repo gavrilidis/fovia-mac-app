@@ -109,3 +109,31 @@ pub fn write_xmp_sidecar_with_keywords(
         .map_err(|e| format!("Failed to write XMP sidecar {}: {e}", xmp_path.display()))?;
     Ok(xmp_path)
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn xml_escape_handles_all_special_chars() {
+        assert_eq!(xml_escape("a&b<c>d\"e'"), "a&amp;b&lt;c&gt;d&quot;e&apos;");
+        assert_eq!(xml_escape("plain"), "plain");
+        assert_eq!(xml_escape(""), "");
+    }
+
+    #[test]
+    fn xmp_label_maps_known_colors() {
+        assert_eq!(xmp_label("red"), "Red");
+        assert_eq!(xmp_label("blue"), "Blue");
+        assert_eq!(xmp_label("none"), "");
+        assert_eq!(xmp_label("unknown"), "");
+    }
+
+    #[test]
+    fn xmp_pick_maps_status_codes() {
+        assert_eq!(xmp_pick("pick"), 1);
+        assert_eq!(xmp_pick("reject"), -1);
+        assert_eq!(xmp_pick("none"), 0);
+        assert_eq!(xmp_pick(""), 0);
+    }
+}

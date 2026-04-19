@@ -103,6 +103,39 @@
     background: var(--scrollbar-thumb-hover);
   }
 
+  /* Custom range slider */
+  input[type="range"].neutral-range {
+    -webkit-appearance: none;
+    appearance: none;
+    background: transparent;
+    cursor: pointer;
+  }
+  input[type="range"].neutral-range::-webkit-slider-runnable-track {
+    height: 4px;
+    border-radius: 2px;
+    background: var(--c-fg-muted, #98989d);
+    opacity: 0.35;
+  }
+  input[type="range"].neutral-range::-webkit-slider-thumb {
+    -webkit-appearance: none;
+    appearance: none;
+    width: 16px;
+    height: 16px;
+    border-radius: 50%;
+    background: white;
+    box-shadow: 0 0.5px 2px rgba(0,0,0,0.3), 0 0 0 0.5px rgba(0,0,0,0.08);
+    margin-top: -6px;
+  }
+
+  /* Shimmer animation for loading buttons */
+  @keyframes shimmer {
+    0% { transform: translateX(-100%); }
+    100% { transform: translateX(100%); }
+  }
+  .animate-shimmer {
+    animation: shimmer 1.5s ease-in-out infinite;
+  }
+
   /* Custom select styling */
   select {
     -webkit-appearance: none;

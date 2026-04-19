@@ -1,0 +1,16 @@
+# cloud-api
+.venv/
+venv/
+env/
+__pycache__/
+*.pyc
+*.pyo
+*.egg-info/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.coverage
+htmlcov/
+buffalo_l/
+*.onnx
+.DS_Store

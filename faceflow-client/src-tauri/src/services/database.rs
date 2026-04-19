@@ -540,3 +540,89 @@ pub fn clear_scan_progress(conn: &Connection, folder_path: &str) -> Result<(), S
     .map_err(|e| format!("Failed to clear scan progress: {e}"))?;
     Ok(())
 }
+
+/// Completely remove all data associated with files under `folder_path`.
+/// This is the "factory reset" for a scanned folder: faces, metadata, tags,
+/// file hashes, scan records, and resume progress are all wiped in a single
+/// transaction so the database stays consistent.
+pub fn reset_folder_data(conn: &Connection, folder_path: &str) -> Result<u64, String> {
+    // Normalise to ensure a trailing separator for the LIKE prefix match.
+    let prefix = if folder_path.ends_with('/') || folder_path.ends_with('\\') {
+        folder_path.to_string()
+    } else {
+        format!("{folder_path}/")
+    };
+    let like_pattern = format!("{prefix}%");
+
+    let tx = conn
+        .unchecked_transaction()
+        .map_err(|e| format!("Failed to begin transaction: {e}"))?;
+
+    // 1. Faces (depend on file_path starting with folder prefix)
+    tx.execute(
+        "DELETE FROM faces WHERE file_path LIKE ?1",
+        params![like_pattern],
+    )
+    .map_err(|e| format!("reset: delete faces: {e}"))?;
+
+    // 2. Photo metadata
+    tx.execute(
+        "DELETE FROM photo_metadata WHERE file_path LIKE ?1",
+        params![like_pattern],
+    )
+    .map_err(|e| format!("reset: delete photo_metadata: {e}"))?;
+
+    // 3. Photo ↔ tag links
+    tx.execute(
+        "DELETE FROM photo_tags WHERE file_path LIKE ?1",
+        params![like_pattern],
+    )
+    .map_err(|e| format!("reset: delete photo_tags: {e}"))?;
+
+    // 4. Scanned file hashes
+    let deleted = tx
+        .execute(
+            "DELETE FROM scanned_files WHERE file_path LIKE ?1",
+            params![like_pattern],
+        )
+        .map_err(|e| format!("reset: delete scanned_files: {e}"))? as u64;
+
+    // 5. Scan records whose folder matches exactly
+    tx.execute(
+        "DELETE FROM scans WHERE folder_path = ?1",
+        params![folder_path],
+    )
+    .map_err(|e| format!("reset: delete scans: {e}"))?;
+
+    // 6. Resume / progress checkpoint
+    tx.execute(
+        "DELETE FROM scan_progress WHERE folder_path = ?1",
+        params![folder_path],
+    )
+    .map_err(|e| format!("reset: delete scan_progress: {e}"))?;
+
+    tx.commit()
+        .map_err(|e| format!("reset: commit failed: {e}"))?;
+
+    Ok(deleted)
+}
+
+/// Count how many files have been scanned (have a hash entry) under
+/// `folder_path`. Used by the pre-scan prompt to decide whether to ask the
+/// user "Continue (incremental) / Start fresh / Cancel".
+pub fn count_folder_scanned_files(conn: &Connection, folder_path: &str) -> Result<u64, String> {
+    let prefix = if folder_path.ends_with('/') || folder_path.ends_with('\\') {
+        folder_path.to_string()
+    } else {
+        format!("{folder_path}/")
+    };
+    let like_pattern = format!("{prefix}%");
+    let count: i64 = conn
+        .query_row(
+            "SELECT COUNT(*) FROM scanned_files WHERE file_path LIKE ?1",
+            params![like_pattern],
+            |row| row.get(0),
+        )
+        .map_err(|e| format!("count_folder_scanned_files: {e}"))?;
+    Ok(count as u64)
+}

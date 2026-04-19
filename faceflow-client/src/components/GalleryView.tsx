@@ -1,7 +1,7 @@
 import React, { useCallback, useEffect, useMemo } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import type { FaceEntry, FaceGroup, ColorLabel, PickStatus, EventGroup } from "../types";
-import { FaceSidebar } from "./FaceSidebar";
+import { FaceSidebar, NO_FACES_ID, LOW_QUALITY_ID, ALL_PHOTOS_ID } from "./FaceSidebar";
 import { PhotoGrid } from "./PhotoGrid";
 import { Toolbar } from "./Toolbar";
 import { ExifPanel } from "./ExifPanel";
@@ -9,20 +9,29 @@ import { ExportDialog } from "./ExportDialog";
 import { CompareView } from "./CompareView";
 import { HelpDialog } from "./HelpDialog";
 import { SettingsPanel } from "./SettingsPanel";
+import { AiAnalysisDialog } from "./AiAnalysisDialog";
+import { AiTaskPicker, type AiTaskSelection } from "./AiTaskPicker";
+import { MergeSuggestionsDialog, type MergeSuggestion } from "./MergeSuggestionsDialog";
+import { BottomActionBar } from "./BottomActionBar";
 import { usePhotoMeta } from "../hooks/usePhotoMeta";
 import { useKeyboardShortcuts } from "../hooks/useKeyboardShortcuts";
 import { useI18n } from "../i18n";
-import { isAiConfigured, analyzePhoto, getAiProvider } from "../services/aiService";
+import {
+  isAiConfigured,
+  analyzePhoto,
+  analyzeQuality,
+  compareTwoFaces,
+  getAiProvider,
+} from "../services/aiService";
 
 interface GalleryViewProps {
   groups: FaceGroup[];
   noFaceFiles: string[];
+  lowQualityFaces: FaceEntry[];
   onReset: () => void;
 }
 
-const NO_FACES_ID = "__no_faces__";
-
-export const GalleryView: React.FC<GalleryViewProps> = ({ groups, noFaceFiles, onReset }) => {
+export const GalleryView: React.FC<GalleryViewProps> = ({ groups, noFaceFiles, lowQualityFaces, onReset }) => {
   const { t } = useI18n();
 
   // Mutable groups — allow moving photos between persons
@@ -39,13 +48,27 @@ export const GalleryView: React.FC<GalleryViewProps> = ({ groups, noFaceFiles, o
   const [showCompare, setShowCompare] = React.useState(false);
   const [showHelp, setShowHelp] = React.useState(false);
   const [showSettings, setShowSettings] = React.useState(false);
-  const [showOnboarding, setShowOnboarding] = React.useState(true);
+  // Onboarding banner: show only the first time the user enters the
+  // gallery on this machine. After they dismiss it (or trigger it from
+  // the menu) we remember that in localStorage so it doesn't keep
+  // re-appearing on every launch.
+  const [showOnboarding, setShowOnboarding] = React.useState(
+    () => localStorage.getItem("faceflow-onboarding-seen") !== "1",
+  );
 
   // Search & AI
   const [searchQuery, setSearchQuery] = React.useState("");
   const [aiAnalyzing, setAiAnalyzing] = React.useState(false);
   const [aiConfigured, setAiConfigured] = React.useState(false);
   const [aiStatus, setAiStatus] = React.useState<string | null>(null);
+  const [aiDialogOpen, setAiDialogOpen] = React.useState(false);
+  const [aiPickerOpen, setAiPickerOpen] = React.useState(false);
+  const [aiDialogItems, setAiDialogItems] = React.useState<
+    { filePath: string; status: "pending" | "running" | "done" | "failed"; tags?: string[]; error?: string }[]
+  >([]);
+  const [mergeSuggestions, setMergeSuggestions] = React.useState<MergeSuggestion[]>([]);
+  const [mergeDialogOpen, setMergeDialogOpen] = React.useState(false);
+  const aiCancelRef = React.useRef(false);
   const [aiTags, setAiTags] = React.useState<Map<string, string[]>>(() => {
     // Restore cached AI tags from localStorage
     try {
@@ -69,6 +92,8 @@ export const GalleryView: React.FC<GalleryViewProps> = ({ groups, noFaceFiles, o
   const activeGroup = mutableGroups.find((g) => g.id === activeGroupId) || null;
   const activeIndex = activeGroup ? mutableGroups.indexOf(activeGroup) : -1;
   const isNoFacesActive = activeGroupId === NO_FACES_ID;
+  const isLowQualityActive = activeGroupId === LOW_QUALITY_ID;
+  const isAllPhotosActive = activeGroupId === ALL_PHOTOS_ID;
 
   // Create pseudo-entries for no-face files so PhotoGrid can render them
   const noFaceEntries: FaceEntry[] = React.useMemo(
@@ -87,7 +112,33 @@ export const GalleryView: React.FC<GalleryViewProps> = ({ groups, noFaceFiles, o
     [noFaceFiles],
   );
 
-  const currentPhotos = isNoFacesActive ? noFaceEntries : (activeGroup?.members || []);
+  // "All scanned photos" — one entry per unique file across the entire
+  // library (groups + low-quality bin + no-face files). Lets the user see
+  // exactly how many photos were scanned regardless of how many faces each
+  // photo contains.
+  const allPhotosEntries: FaceEntry[] = React.useMemo(() => {
+    const seen = new Set<string>();
+    const out: FaceEntry[] = [];
+    const consider = (entry: FaceEntry) => {
+      if (seen.has(entry.file_path)) return;
+      seen.add(entry.file_path);
+      out.push(entry);
+    };
+    for (const g of mutableGroups) {
+      for (const m of g.members) consider(m);
+    }
+    for (const lq of lowQualityFaces) consider(lq);
+    for (const nf of noFaceEntries) consider(nf);
+    return out;
+  }, [mutableGroups, lowQualityFaces, noFaceEntries]);
+
+  const currentPhotos = isNoFacesActive
+    ? noFaceEntries
+    : isLowQualityActive
+      ? lowQualityFaces
+      : isAllPhotosActive
+        ? allPhotosEntries
+        : (activeGroup?.members || []);
 
   // Global lookup: face_id → FaceEntry (across all groups)
   const allFacesMap = useMemo(() => {
@@ -114,6 +165,66 @@ export const GalleryView: React.FC<GalleryViewProps> = ({ groups, noFaceFiles, o
   }, [mutableGroups, noFaceFiles]);
 
   const { metaMap, setRating, setColorLabel, setPickStatus } = usePhotoMeta(allFilePaths);
+
+  // Native menu actions that target the gallery view (Settings, Help,
+  // Compare, EXIF, Export, etc.). App.tsx forwards `faceflow:menu`
+  // CustomEvents whose `detail` is the menu item's id.
+  const menuActionsRef = React.useRef<Record<string, () => void>>({});
+  useEffect(() => {
+    const handler = (e: Event) => {
+      const id = (e as CustomEvent<string>).detail;
+      const fn = menuActionsRef.current[id];
+      if (fn) {
+        fn();
+        return;
+      }
+      switch (id) {
+        case "preferences":
+          // Prefer a native sub-window (matches DropZone). Fall back to
+          // the in-app modal if the window can't be created.
+          invoke("open_app_window", {
+            name: "settings",
+            title: "Settings",
+            width: 480,
+            height: 820,
+          }).catch(() => setShowSettings(true));
+          break;
+        case "show_help":
+        case "show_shortcuts":
+          setShowHelp(true);
+          break;
+        case "show_onboarding":
+          setShowOnboarding(true);
+          break;
+        case "export":
+          setShowExport(true);
+          break;
+        case "toggle_compare":
+          setShowCompare((v) => !v);
+          break;
+        case "toggle_exif":
+          setShowExif((v) => !v);
+          break;
+        case "find": {
+          const el = document.getElementById("faceflow-search-input") as HTMLInputElement | null;
+          el?.focus();
+          break;
+        }
+        // Native Edit menu → Select / Deselect All Photos. Previously these
+        // ids fell through to `default` and were silently ignored. They are
+        // wired through `menuActionsRef.current` (see effect that registers
+        // `select_all_photos` / `deselect_all`) so the closure picks up the
+        // latest selection callbacks.
+        // Native View menu → switch between Grid and List layouts.
+        // PhotoGrid listens to the same event and toggles its internal
+        // viewMode state.
+        default:
+          break;
+      }
+    };
+    window.addEventListener("faceflow:menu", handler as EventListener);
+    return () => window.removeEventListener("faceflow:menu", handler as EventListener);
+  }, []);
 
   // Fetch event groups when event view is active
   useEffect(() => {
@@ -269,6 +380,41 @@ export const GalleryView: React.FC<GalleryViewProps> = ({ groups, noFaceFiles, o
     }
   }, [selectedPhotoPaths, t]);
 
+  // M7: Folder-level JSON summary export. Uses all currently visible
+  // photos (post-filter) when nothing is explicitly selected.
+  const handleExportFolderSummary = useCallback(async () => {
+    const targets = selectedPhotoPaths.length > 0
+      ? selectedPhotoPaths
+      : filteredPhotos.map((p) => p.file_path);
+    if (targets.length === 0) {
+      setAiStatus(t("folder_summary_no_photos"));
+      setTimeout(() => setAiStatus(null), 3000);
+      return;
+    }
+    try {
+      const out = await invoke<string>("export_folder_summary", {
+        filePaths: targets,
+        outputDir: "",
+      });
+      setAiStatus(`${t("folder_summary_done")}: ${out}`);
+      setTimeout(() => setAiStatus(null), 5000);
+    } catch (err) {
+      setAiStatus(
+        `${t("folder_summary_failed")}: ${err instanceof Error ? err.message : String(err)}`,
+      );
+      setTimeout(() => setAiStatus(null), 5000);
+    }
+  }, [selectedPhotoPaths, filteredPhotos, t]);
+
+  // Wire dynamic menu actions that depend on callbacks defined later
+  useEffect(() => {
+    menuActionsRef.current = {
+      ...menuActionsRef.current,
+      export_xmp: handleExportXmp,
+      export_folder_summary: handleExportFolderSummary,
+    };
+  }, [handleExportXmp, handleExportFolderSummary]);
+
   const handleRevealSelected = useCallback(async () => {
     if (selectedGroupIds.size === 0) return;
     const filePaths = mutableGroups
@@ -280,6 +426,139 @@ export const GalleryView: React.FC<GalleryViewProps> = ({ groups, noFaceFiles, o
       console.error("reveal_in_finder failed", e);
     }
   }, [mutableGroups, selectedGroupIds]);
+
+  const handleSelectAllPersons = useCallback(() => {
+    setSelectedGroupIds(new Set(mutableGroups.map((g) => g.id)));
+  }, [mutableGroups]);
+
+  const handleDeselectAllPersons = useCallback(() => {
+    setSelectedGroupIds(new Set());
+  }, []);
+
+  // Remove selected person groups (from current view only — does not touch DB).
+  const handleDeletePersons = useCallback(() => {
+    if (selectedGroupIds.size === 0) return;
+    setMutableGroups((prev) => prev.filter((g) => !selectedGroupIds.has(g.id)));
+    setGroupNames((prev) => {
+      const next = new Map(prev);
+      for (const id of selectedGroupIds) next.delete(id);
+      return next;
+    });
+    if (activeGroupId && selectedGroupIds.has(activeGroupId)) setActiveGroupId(null);
+    setSelectedGroupIds(new Set());
+  }, [selectedGroupIds, activeGroupId]);
+
+  // Merge selected person groups into the first one.
+  const handleMergePersons = useCallback(() => {
+    if (selectedGroupIds.size < 2) return;
+    setMutableGroups((prev) => {
+      const selected = prev.filter((g) => selectedGroupIds.has(g.id));
+      if (selected.length < 2) return prev;
+      const target = selected[0];
+      const rest = selected.slice(1);
+      const mergedMembers = [...target.members, ...rest.flatMap((g) => g.members)];
+      return prev
+        .filter((g) => !rest.find((r) => r.id === g.id))
+        .map((g) =>
+          g.id === target.id
+            ? { ...g, members: mergedMembers, representative: mergedMembers[0] }
+            : g,
+        );
+    });
+    setSelectedGroupIds(new Set());
+  }, [selectedGroupIds]);
+
+  // Resolve every distinct file path that belongs to *any* of the selected
+  // person groups. Used by the sidebar bulk actions so a single click can
+  // operate on, say, all photos of three people at once.
+  const selectedPersonsPhotoPaths = useMemo<string[]>(() => {
+    if (selectedGroupIds.size === 0) return [];
+    const set = new Set<string>();
+    for (const g of mutableGroups) {
+      if (!selectedGroupIds.has(g.id)) continue;
+      for (const m of g.members) set.add(m.file_path);
+    }
+    return Array.from(set);
+  }, [mutableGroups, selectedGroupIds]);
+
+  const handleSetRatingForSelectedPersons = useCallback(
+    (rating: number) => {
+      if (selectedPersonsPhotoPaths.length === 0) return;
+      setRating(selectedPersonsPhotoPaths, rating);
+    },
+    [selectedPersonsPhotoPaths, setRating],
+  );
+
+  const handleSetColorLabelForSelectedPersons = useCallback(
+    (label: ColorLabel) => {
+      if (selectedPersonsPhotoPaths.length === 0) return;
+      setColorLabel(selectedPersonsPhotoPaths, label);
+    },
+    [selectedPersonsPhotoPaths, setColorLabel],
+  );
+
+  const handleSetPickStatusForSelectedPersons = useCallback(
+    (status: PickStatus) => {
+      if (selectedPersonsPhotoPaths.length === 0) return;
+      setPickStatus(selectedPersonsPhotoPaths, status);
+    },
+    [selectedPersonsPhotoPaths, setPickStatus],
+  );
+
+  // AI bulk for selected persons: temporarily promote the resolved paths
+  // to "selected photos" and reuse the existing AI picker pipeline.
+  const handleAiAnalyzeForSelectedPersons = useCallback(async () => {
+    if (selectedPersonsPhotoPaths.length === 0) return;
+    if (!(await isAiConfigured(getAiProvider()))) {
+      setAiStatus("API key not configured — open Settings to add one");
+      setTimeout(() => setAiStatus(null), 4000);
+      return;
+    }
+    // Map paths back to face_ids so the existing runAiTasks flow picks them
+    // up via its `selectedPhotoIds` branch.
+    const ids = new Set<string>();
+    for (const g of mutableGroups) {
+      if (!selectedGroupIds.has(g.id)) continue;
+      for (const m of g.members) ids.add(m.face_id);
+    }
+    setSelectedPhotoIds(ids);
+    setAiPickerOpen(true);
+  }, [mutableGroups, selectedGroupIds, selectedPersonsPhotoPaths]);
+
+  // Export bulk for selected persons: open the same ExportDialog but feed
+  // it every photo path of every selected person. We promote the photos
+  // into the photo-selection set so the dialog gets the right list.
+  const handleExportForSelectedPersons = useCallback(() => {
+    if (selectedPersonsPhotoPaths.length === 0) return;
+    const ids = new Set<string>();
+    for (const g of mutableGroups) {
+      if (!selectedGroupIds.has(g.id)) continue;
+      for (const m of g.members) ids.add(m.face_id);
+    }
+    setSelectedPhotoIds(ids);
+    setShowExport(true);
+  }, [mutableGroups, selectedGroupIds, selectedPersonsPhotoPaths]);
+
+  // Lightroom XMP sidecars for every photo of every selected person.
+  const handleExportXmpForSelectedPersons = useCallback(async () => {
+    if (selectedPersonsPhotoPaths.length === 0) return;
+    try {
+      await invoke<number>("export_xmp_sidecars", {
+        photoIds: selectedPersonsPhotoPaths,
+        outputDir: "",
+      });
+      setAiStatus(
+        t("xmp_export_done").replace("{count}", String(selectedPersonsPhotoPaths.length)),
+      );
+      setTimeout(() => setAiStatus(null), 3000);
+    } catch (err) {
+      setAiStatus(
+        `${t("xmp_export_failed")}: ${err instanceof Error ? err.message : String(err)}`,
+      );
+      setTimeout(() => setAiStatus(null), 5000);
+    }
+  }, [selectedPersonsPhotoPaths, t]);
+
 
   const handleSelectAll = useCallback(() => {
     setSelectedPhotoIds((prev) => {
@@ -293,71 +572,256 @@ export const GalleryView: React.FC<GalleryViewProps> = ({ groups, noFaceFiles, o
     setSelectedPhotoIds(new Set());
   }, []);
 
-  // AI analyze selected photos
+  // Bridge native Edit menu → Select / Deselect All Photos. Wired through
+  // `menuActionsRef` because the callbacks are defined here, *after* the
+  // top-level menu listener, and we need it to pick up the latest closures
+  // (i.e. always see the current `filteredPhotos`).
+  useEffect(() => {
+    menuActionsRef.current = {
+      ...menuActionsRef.current,
+      select_all_photos: () => handleSelectAll(),
+      deselect_all: () => handleDeselectAll(),
+    };
+  }, [handleSelectAll, handleDeselectAll]);
+
+  // AI flow: open task picker first
   const handleAiAnalyze = useCallback(async () => {
     if (!(await isAiConfigured(getAiProvider()))) {
       setAiStatus("API key not configured — open Settings to add one");
       setTimeout(() => setAiStatus(null), 4000);
       return;
     }
-    setAiAnalyzing(true);
-    setAiStatus(null);
-    let successCount = 0;
-    let failCount = 0;
-    let firstError = "";
-    try {
-      // If no photos selected, analyze all photos in current view
-      const entriesToAnalyze = selectedPhotoIds.size > 0
-        ? Array.from(selectedPhotoIds)
-            .map((id) => allFacesMap.get(id))
-            .filter((f): f is FaceEntry => f !== undefined)
-        : currentPhotos;
+    setAiPickerOpen(true);
+  }, []);
 
-      if (entriesToAnalyze.length === 0) {
-        setAiStatus("No photos to analyze");
-        setTimeout(() => setAiStatus(null), 3000);
-        setAiAnalyzing(false);
-        return;
-      }
+  // Run AI tasks chosen by user via the picker
+  const runAiTasks = useCallback(
+    async (tasks: AiTaskSelection) => {
+      setAiPickerOpen(false);
 
-      for (let i = 0; i < entriesToAnalyze.length; i++) {
-        const entry = entriesToAnalyze[i];
-        setAiStatus(`Analyzing ${i + 1} / ${entriesToAnalyze.length}...`);
+      const entriesToAnalyze =
+        selectedPhotoIds.size > 0
+          ? Array.from(selectedPhotoIds)
+              .map((id) => allFacesMap.get(id))
+              .filter((f): f is FaceEntry => f !== undefined)
+          : currentPhotos;
+
+      // Per-photo tasks: tags + quality detection
+      if ((tasks.tags || tasks.detectQuality) && entriesToAnalyze.length > 0) {
+        aiCancelRef.current = false;
+        setAiAnalyzing(true);
+        setAiStatus(null);
+        setAiDialogItems(
+          entriesToAnalyze.map((e) => ({ filePath: e.file_path, status: "pending" as const })),
+        );
+        setAiDialogOpen(true);
+
+        let successCount = 0;
+        let failCount = 0;
+
         try {
-          // Read photo as base64 via Tauri
-          const base64 = await invoke<string>("read_photo_base64", { filePath: entry.file_path });
-          const result = await analyzePhoto(base64);
-          successCount++;
-          setAiTags((prev) => {
-            const next = new Map(prev);
-            next.set(entry.file_path, result.tags);
-            // Persist to localStorage
+          for (let i = 0; i < entriesToAnalyze.length; i++) {
+            if (aiCancelRef.current) break;
+            const entry = entriesToAnalyze[i];
+            setAiDialogItems((prev) =>
+              prev.map((it, idx) => (idx === i ? { ...it, status: "running" } : it)),
+            );
             try {
-              localStorage.setItem("faceflow-ai-tags", JSON.stringify([...next]));
-            } catch { /* quota exceeded, ignore */ }
-            return next;
-          });
-        } catch (err) {
-          failCount++;
-          if (!firstError) firstError = err instanceof Error ? err.message : String(err);
-          console.error("AI analyze failed for", entry.file_path, err);
+              const base64 = await invoke<string>("read_photo_base64", {
+                filePath: entry.file_path,
+              });
+
+              let tagList: string[] = [];
+              if (tasks.tags) {
+                const result = await analyzePhoto(base64);
+                tagList = result.tags;
+                setAiTags((prev) => {
+                  const next = new Map(prev);
+                  next.set(entry.file_path, result.tags);
+                  try {
+                    localStorage.setItem("faceflow-ai-tags", JSON.stringify([...next]));
+                  } catch {
+                    /* quota exceeded, ignore */
+                  }
+                  return next;
+                });
+              }
+
+              if (tasks.detectQuality) {
+                try {
+                  const q = await analyzeQuality(base64);
+                  const flags: string[] = [];
+                  if (q.is_blurry) flags.push(t("ai_quality_blurry"));
+                  if (q.closed_eyes) flags.push(t("ai_quality_closed_eyes"));
+                  if (q.out_of_focus) flags.push(t("ai_quality_out_of_focus"));
+                  if (q.bad_composition) flags.push(t("ai_quality_bad_composition"));
+                  if (flags.length > 0) {
+                    setAiTags((prev) => {
+                      const next = new Map(prev);
+                      const existing = next.get(entry.file_path) ?? [];
+                      const merged = Array.from(new Set([...existing, ...flags]));
+                      next.set(entry.file_path, merged);
+                      try {
+                        localStorage.setItem("faceflow-ai-tags", JSON.stringify([...next]));
+                      } catch {
+                        /* ignore */
+                      }
+                      return next;
+                    });
+                    tagList = Array.from(new Set([...tagList, ...flags]));
+                  }
+                } catch (qErr) {
+                  console.warn("AI quality check failed for", entry.file_path, qErr);
+                }
+              }
+
+              successCount++;
+              setAiDialogItems((prev) =>
+                prev.map((it, idx) =>
+                  idx === i ? { ...it, status: "done", tags: tagList } : it,
+                ),
+              );
+            } catch (err) {
+              failCount++;
+              const msg = err instanceof Error ? err.message : String(err);
+              setAiDialogItems((prev) =>
+                prev.map((it, idx) =>
+                  idx === i ? { ...it, status: "failed", error: msg } : it,
+                ),
+              );
+              console.error("AI analyze failed for", entry.file_path, err);
+            }
+          }
+        } finally {
+          setAiAnalyzing(false);
+          if (successCount > 0 || failCount > 0) {
+            setAiStatus(`AI: ${successCount} done, ${failCount} failed`);
+            setTimeout(() => setAiStatus(null), 5000);
+          }
         }
       }
-    } catch (err) {
-      console.error("AI analyze error:", err);
-      setAiStatus(`Error: ${err instanceof Error ? err.message : String(err)}`);
-      setTimeout(() => setAiStatus(null), 5000);
+
+      // Person-merge suggestion task: pairwise compare small persons
+      if (tasks.mergePersons) {
+        await runMergeSuggestions();
+      }
+    },
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [selectedPhotoIds, allFacesMap, currentPhotos, t],
+  );
+
+  // Compare small person clusters pairwise via AI to discover possible merges.
+  const runMergeSuggestions = useCallback(async () => {
+    // Take small clusters (≤ 4 photos) — these are the typical false splits.
+    const candidates = mutableGroups.filter((g) => g.members.length > 0 && g.members.length <= 4);
+    if (candidates.length < 2) {
+      setAiStatus("Not enough small persons to compare");
+      setTimeout(() => setAiStatus(null), 4000);
+      return;
+    }
+
+    // Limit to top 30 candidates by member count and cap pairs at 60 to bound cost.
+    const limited = candidates.slice(0, 30);
+    const pairs: Array<[number, number]> = [];
+    for (let i = 0; i < limited.length; i++) {
+      for (let j = i + 1; j < limited.length; j++) {
+        pairs.push([i, j]);
+        if (pairs.length >= 60) break;
+      }
+      if (pairs.length >= 60) break;
+    }
+
+    aiCancelRef.current = false;
+    setAiAnalyzing(true);
+    setAiStatus(null);
+    // Use AiAnalysisDialog to surface progress; each "item" is a pair.
+    setAiDialogItems(
+      pairs.map(([i, j]) => ({
+        filePath: `${limited[i].representative.file_path} ↔ ${limited[j].representative.file_path}`,
+        status: "pending" as const,
+      })),
+    );
+    setAiDialogOpen(true);
+
+    const found: MergeSuggestion[] = [];
+    try {
+      for (let p = 0; p < pairs.length; p++) {
+        if (aiCancelRef.current) break;
+        const [ai, bi] = pairs[p];
+        const a = limited[ai];
+        const b = limited[bi];
+        setAiDialogItems((prev) =>
+          prev.map((it, idx) => (idx === p ? { ...it, status: "running" } : it)),
+        );
+        try {
+          const [base64A, base64B] = await Promise.all([
+            invoke<string>("read_photo_base64", { filePath: a.representative.file_path }),
+            invoke<string>("read_photo_base64", { filePath: b.representative.file_path }),
+          ]);
+          const decision = await compareTwoFaces(base64A, base64B);
+          const isMatch = decision.same_person && decision.confidence >= 0.6;
+          if (isMatch) {
+            found.push({
+              groupAId: a.id,
+              groupBId: b.id,
+              confidence: decision.confidence,
+              reason: decision.reason,
+            });
+          }
+          setAiDialogItems((prev) =>
+            prev.map((it, idx) =>
+              idx === p
+                ? {
+                    ...it,
+                    status: "done",
+                    tags: isMatch
+                      ? [`match ${(decision.confidence * 100).toFixed(0)}%`]
+                      : ["different"],
+                  }
+                : it,
+            ),
+          );
+        } catch (err) {
+          const msg = err instanceof Error ? err.message : String(err);
+          setAiDialogItems((prev) =>
+            prev.map((it, idx) =>
+              idx === p ? { ...it, status: "failed", error: msg } : it,
+            ),
+          );
+        }
+      }
     } finally {
       setAiAnalyzing(false);
-      if (successCount > 0 || failCount > 0) {
-        const msg = failCount > 0
-          ? `${successCount} tagged, ${failCount} failed${firstError ? ": " + firstError.slice(0, 100) : ""}`
-          : `Done: ${successCount} photos tagged`;
-        setAiStatus(msg);
-        setTimeout(() => setAiStatus(null), 8000);
+      setMergeSuggestions(found);
+      if (found.length > 0) {
+        setMergeDialogOpen(true);
+      } else {
+        setAiStatus("No merge suggestions found");
+        setTimeout(() => setAiStatus(null), 4000);
       }
     }
-  }, [selectedPhotoIds, allFacesMap, currentPhotos]);
+  }, [mutableGroups]);
+
+  const handleAcceptMergeSuggestion = useCallback((s: MergeSuggestion) => {
+    setMutableGroups((prev) => {
+      const a = prev.find((g) => g.id === s.groupAId);
+      const b = prev.find((g) => g.id === s.groupBId);
+      if (!a || !b) return prev;
+      const mergedMembers = [...a.members, ...b.members];
+      return prev
+        .filter((g) => g.id !== b.id)
+        .map((g) =>
+          g.id === a.id ? { ...g, members: mergedMembers, representative: mergedMembers[0] } : g,
+        );
+    });
+    setMergeSuggestions((prev) =>
+      prev.filter((x) => x.groupAId !== s.groupAId || x.groupBId !== s.groupBId),
+    );
+  }, []);
+
+  const handleRejectMergeSuggestion = useCallback((index: number) => {
+    setMergeSuggestions((prev) => prev.filter((_, i) => i !== index));
+  }, []);
 
   // Move selected photos to a target person group
   const handleMovePhotos = useCallback((targetGroupId: string) => {
@@ -517,7 +981,14 @@ export const GalleryView: React.FC<GalleryViewProps> = ({ groups, noFaceFiles, o
         onMovePhotos={handleMovePhotos}
         onCreateGroupAndMove={handleCreateGroupAndMove}
         onHelp={() => setShowHelp(true)}
-        onSettings={() => setShowSettings(true)}
+        onSettings={() => {
+          invoke("open_app_window", {
+            name: "settings",
+            title: "Settings",
+            width: 480,
+            height: 820,
+          }).catch(() => setShowSettings(true));
+        }}
         searchQuery={searchQuery}
         onSearchChange={setSearchQuery}
         onAiAnalyze={handleAiAnalyze}
@@ -537,7 +1008,10 @@ export const GalleryView: React.FC<GalleryViewProps> = ({ groups, noFaceFiles, o
             <span className="text-fg-muted/70">{t("gallery_onboarding_help")}</span>
           </p>
           <button
-            onClick={() => setShowOnboarding(false)}
+            onClick={() => {
+              setShowOnboarding(false);
+              localStorage.setItem("faceflow-onboarding-seen", "1");
+            }}
             title="Dismiss hint"
             className="flex h-5 w-5 flex-shrink-0 items-center justify-center rounded text-fg-muted/60 transition-colors hover:bg-surface-elevated hover:text-fg"
           >
@@ -556,10 +1030,22 @@ export const GalleryView: React.FC<GalleryViewProps> = ({ groups, noFaceFiles, o
             selectedGroupIds={selectedGroupIds}
             selectedCountPerGroup={selectedCountPerGroup}
             noFaceCount={noFaceFiles.length}
+            lowQualityCount={lowQualityFaces.length}
+            allPhotosCount={allPhotosEntries.length}
             onSetActive={handleSetActive}
             onToggleGroupSelect={handleToggleGroupSelect}
+            onSelectAllPersons={handleSelectAllPersons}
+            onDeselectAllPersons={handleDeselectAllPersons}
             onRevealSelected={handleRevealSelected}
+            onDeleteSelected={handleDeletePersons}
+            onMergeSelected={handleMergePersons}
             onRenameGroup={handleRenameGroup}
+            onAiAnalyzeSelectedPersons={handleAiAnalyzeForSelectedPersons}
+            onSetRatingForSelectedPersons={handleSetRatingForSelectedPersons}
+            onSetColorLabelForSelectedPersons={handleSetColorLabelForSelectedPersons}
+            onSetPickStatusForSelectedPersons={handleSetPickStatusForSelectedPersons}
+            onExportSelectedPersons={handleExportForSelectedPersons}
+            onExportXmpSelectedPersons={handleExportXmpForSelectedPersons}
           />
         )}
         {eventView ? (
@@ -600,7 +1086,6 @@ export const GalleryView: React.FC<GalleryViewProps> = ({ groups, noFaceFiles, o
                       onToggleSelect={handleTogglePhotoSelect}
                       onSelectAll={handleSelectAll}
                       onDeselectAll={handleDeselectAll}
-                      hideBbox
                       metaMap={metaMap}
                       aiTags={aiTags}
                     />
@@ -612,12 +1097,22 @@ export const GalleryView: React.FC<GalleryViewProps> = ({ groups, noFaceFiles, o
         ) : (
           <PhotoGrid
             photos={filteredPhotos}
-            personLabel={isNoFacesActive ? "No Faces" : activeIndex >= 0 ? getGroupName(activeGroup!.id, activeIndex) : ""}
+            personLabel={
+              isAllPhotosActive
+                ? t("sidebar_all_photos")
+                : isNoFacesActive
+                  ? t("sidebar_no_faces")
+                  : isLowQualityActive
+                    ? t("sidebar_low_quality")
+                    : activeIndex >= 0
+                      ? getGroupName(activeGroup!.id, activeIndex)
+                      : ""
+            }
             selectedIds={selectedPhotoIds}
             onToggleSelect={handleTogglePhotoSelect}
             onSelectAll={handleSelectAll}
             onDeselectAll={handleDeselectAll}
-            hideBbox={isNoFacesActive}
+            showBbox={!isNoFacesActive && !isAllPhotosActive}
             metaMap={metaMap}
             aiTags={aiTags}
           />
@@ -626,6 +1121,41 @@ export const GalleryView: React.FC<GalleryViewProps> = ({ groups, noFaceFiles, o
           <ExifPanel filePath={exifFilePath} onClose={() => setShowExif(false)} />
         )}
       </div>
+
+      {/* Floating bottom action bar (M4) */}
+      <BottomActionBar
+        selectedCount={selectedPhotoPaths.length}
+        onClearSelection={handleDeselectAll}
+        onExport={() => {
+          // Stash the current selection where the sub-window can read it,
+          // then open Export in its own native window. Falls back to the
+          // in-app modal if the sub-window can't be created.
+          try {
+            // localStorage is shared between native sub-windows in Tauri,
+            // sessionStorage is per-webview. We use localStorage so the
+            // freshly opened Export window can read the selection that the
+            // user made in the gallery window.
+            localStorage.setItem(
+              "faceflow-export-payload",
+              JSON.stringify({ filePaths: selectedPhotoPaths, groups: mutableGroups }),
+            );
+          } catch {
+            /* localStorage may be full / disabled */
+          }
+          invoke("open_app_window", {
+            name: "export",
+            title: "Export",
+            width: 540,
+            height: 820,
+          }).catch(() => setShowExport(true));
+        }}
+        onPick={() => setPickStatus(selectedPhotoPaths, "pick")}
+        onReject={() => setPickStatus(selectedPhotoPaths, "reject")}
+        onClearStatus={() => setPickStatus(selectedPhotoPaths, "none")}
+        onRate={(r) => setRating(selectedPhotoPaths, r)}
+        onSetColorLabel={(label) => setColorLabel(selectedPhotoPaths, label)}
+        onCompare={() => setShowCompare(true)}
+      />
 
       {/* Modals */}
       {showExport && selectedPhotoPaths.length > 0 && (
@@ -640,6 +1170,34 @@ export const GalleryView: React.FC<GalleryViewProps> = ({ groups, noFaceFiles, o
       {showSettings && (
         <SettingsPanel onClose={() => setShowSettings(false)} />
       )}
+
+      <AiAnalysisDialog
+        open={aiDialogOpen}
+        items={aiDialogItems}
+        isRunning={aiAnalyzing}
+        onClose={() => setAiDialogOpen(false)}
+        onCancel={() => {
+          aiCancelRef.current = true;
+        }}
+      />
+
+      <AiTaskPicker
+        open={aiPickerOpen}
+        defaultSelectedCount={selectedPhotoIds.size}
+        totalPhotos={currentPhotos.length}
+        onClose={() => setAiPickerOpen(false)}
+        onRun={runAiTasks}
+      />
+
+      <MergeSuggestionsDialog
+        open={mergeDialogOpen}
+        suggestions={mergeSuggestions}
+        groups={mutableGroups}
+        groupNames={groupNames}
+        onClose={() => setMergeDialogOpen(false)}
+        onAccept={handleAcceptMergeSuggestion}
+        onReject={handleRejectMergeSuggestion}
+      />
 
       {/* AI status toast */}
       {aiStatus && (
