@@ -257,8 +257,8 @@ export const FaceSidebar: React.FC<FaceSidebarProps> = ({
             );
           })}
 
-          {/* No Faces group */}
-          {noFaceCount > 0 && (
+          {/* No Faces group — always shown so it's discoverable, even when empty */}
+          {(
             <>
               <div className="my-1 h-px bg-edge" />
               <div className="group relative flex items-center">
@@ -292,8 +292,8 @@ export const FaceSidebar: React.FC<FaceSidebarProps> = ({
             </>
           )}
 
-          {/* Low quality group */}
-          {lowQualityCount > 0 && (
+          {/* Low quality group — always shown so it's discoverable, even when empty */}
+          {(
             <div className="group relative flex items-center">
               <button
                 onClick={() => onSetActive(LOW_QUALITY_ID)}

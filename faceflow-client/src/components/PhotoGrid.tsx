@@ -102,7 +102,7 @@ const PhotoCard: React.FC<{
         <svg
           className="pointer-events-none absolute inset-0 h-full w-full"
           viewBox={`0 0 ${imgSize.w} ${imgSize.h}`}
-          preserveAspectRatio="xMidYMid meet"
+          preserveAspectRatio="xMidYMid slice"
         >
           <rect
             x={photo.bbox_x1}
@@ -271,11 +271,14 @@ export const PhotoGrid: React.FC<PhotoGridProps> = ({
   const HORIZONTAL_PADDING = 16;
   const GAP = 4;
   const innerWidth = Math.max(0, parentWidth - HORIZONTAL_PADDING);
+  // Use exact (un-floored) card size so the absolutely-positioned virtual
+  // rows don't accumulate sub-pixel gaps that show up as visible empty
+  // bands between rows at certain zoom levels.
   const cardSize =
     innerWidth > 0 && columns > 0
-      ? Math.floor((innerWidth - GAP * (columns - 1)) / columns)
+      ? (innerWidth - GAP * (columns - 1)) / columns
       : 280;
-  const rowHeight = Math.max(180, cardSize + GAP);
+  const rowHeight = cardSize + GAP;
   const rowVirtualizer = useVirtualizer({
     count: rows.length,
     getScrollElement: () => parentRef.current,

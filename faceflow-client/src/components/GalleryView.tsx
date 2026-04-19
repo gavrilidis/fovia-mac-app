@@ -1122,40 +1122,48 @@ export const GalleryView: React.FC<GalleryViewProps> = ({ groups, noFaceFiles, l
         )}
       </div>
 
-      {/* Floating bottom action bar (M4) */}
-      <BottomActionBar
-        selectedCount={selectedPhotoPaths.length}
-        onClearSelection={handleDeselectAll}
-        onExport={() => {
-          // Stash the current selection where the sub-window can read it,
-          // then open Export in its own native window. Falls back to the
-          // in-app modal if the sub-window can't be created.
-          try {
-            // localStorage is shared between native sub-windows in Tauri,
-            // sessionStorage is per-webview. We use localStorage so the
-            // freshly opened Export window can read the selection that the
-            // user made in the gallery window.
-            localStorage.setItem(
-              "faceflow-export-payload",
-              JSON.stringify({ filePaths: selectedPhotoPaths, groups: mutableGroups }),
-            );
-          } catch {
-            /* localStorage may be full / disabled */
-          }
-          invoke("open_app_window", {
-            name: "export",
-            title: "Export",
-            width: 540,
-            height: 820,
-          }).catch(() => setShowExport(true));
-        }}
-        onPick={() => setPickStatus(selectedPhotoPaths, "pick")}
-        onReject={() => setPickStatus(selectedPhotoPaths, "reject")}
-        onClearStatus={() => setPickStatus(selectedPhotoPaths, "none")}
-        onRate={(r) => setRating(selectedPhotoPaths, r)}
-        onSetColorLabel={(label) => setColorLabel(selectedPhotoPaths, label)}
-        onCompare={() => setShowCompare(true)}
-      />
+      {/* Floating bottom action bar (M4) — appears when EITHER photos or
+          persons are selected. When persons are selected (and no individual
+          photos), the actions operate on every photo of every selected
+          person. */}
+      {(() => {
+        const photoMode = selectedPhotoPaths.length > 0;
+        const personMode = !photoMode && selectedGroupIds.size > 0;
+        const targetPaths = photoMode ? selectedPhotoPaths : selectedPersonsPhotoPaths;
+        const count = photoMode ? selectedPhotoPaths.length : (personMode ? selectedPersonsPhotoPaths.length : 0);
+        const clearSelection = () => {
+          if (photoMode) handleDeselectAll();
+          else handleDeselectAllPersons();
+        };
+        return (
+          <BottomActionBar
+            selectedCount={count}
+            onClearSelection={clearSelection}
+            onExport={() => {
+              try {
+                localStorage.setItem(
+                  "faceflow-export-payload",
+                  JSON.stringify({ filePaths: targetPaths, groups: mutableGroups }),
+                );
+              } catch {
+                /* localStorage may be full / disabled */
+              }
+              invoke("open_app_window", {
+                name: "export",
+                title: "Export",
+                width: 540,
+                height: 820,
+              }).catch(() => setShowExport(true));
+            }}
+            onPick={() => setPickStatus(targetPaths, "pick")}
+            onReject={() => setPickStatus(targetPaths, "reject")}
+            onClearStatus={() => setPickStatus(targetPaths, "none")}
+            onRate={(r) => setRating(targetPaths, r)}
+            onSetColorLabel={(label) => setColorLabel(targetPaths, label)}
+            onCompare={photoMode ? () => setShowCompare(true) : undefined}
+          />
+        );
+      })()}
 
       {/* Modals */}
       {showExport && selectedPhotoPaths.length > 0 && (
