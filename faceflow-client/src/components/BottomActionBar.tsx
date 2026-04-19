@@ -12,6 +12,9 @@ interface BottomActionBarProps {
   onClearStatus: () => void;
   onRate: (rating: number) => void;
   onSetColorLabel: (label: ColorLabel) => void;
+  /** Reveal every selected file in the macOS Finder, with the files
+   *  pre-selected. Shown as a small folder button next to Compare. */
+  onReveal?: () => void;
   onCompare?: () => void;
   // Current color label across the selection ("none" when mixed/empty).
   // Used to highlight the active color in the picker.
@@ -38,6 +41,7 @@ const ICONS = {
   x: "M18 6L6 18M6 6l12 12",
   download: "M21 15v4a2 2 0 01-2 2H5a2 2 0 01-2-2v-4M7 10l5 5 5-5M12 15V3",
   trash: "M3 6h18M19 6v14a2 2 0 01-2 2H7a2 2 0 01-2-2V6m3 0V4a2 2 0 012-2h4a2 2 0 012 2v2",
+  folder: "M3 7a2 2 0 012-2h4l2 2h8a2 2 0 012 2v8a2 2 0 01-2 2H5a2 2 0 01-2-2V7z",
 };
 
 /**
@@ -58,6 +62,7 @@ export const BottomActionBar: React.FC<BottomActionBarProps> = ({
   onRate,
   onSetColorLabel,
   onCompare,
+  onReveal,
   currentColorLabel = "none",
 }) => {
   const { t } = useI18n();
@@ -136,6 +141,20 @@ export const BottomActionBar: React.FC<BottomActionBarProps> = ({
             title={t("bottom_bar_compare", { count: String(selectedCount) })}
           >
             {t("bottom_bar_compare", { count: String(selectedCount) })}
+          </button>
+        </>
+      )}
+
+      {onReveal && (
+        <>
+          <div className="mx-1 h-5 w-px bg-edge" />
+          <button
+            onClick={onReveal}
+            className="flex items-center gap-1 rounded-md px-2 py-1 text-[11px] font-medium text-fg-muted transition-colors hover:bg-surface hover:text-fg"
+            title={t("bottom_bar_reveal")}
+            aria-label={t("bottom_bar_reveal")}
+          >
+            <Icon d={ICONS.folder} />
           </button>
         </>
       )}

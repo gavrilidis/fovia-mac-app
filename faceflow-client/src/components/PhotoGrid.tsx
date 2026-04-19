@@ -295,7 +295,7 @@ export const PhotoGrid: React.FC<PhotoGridProps> = ({
   if (photos.length === 0) {
     return (
       <div className="flex h-full flex-1 flex-col items-center justify-center gap-4 p-8">
-        <p className="text-[13px] text-fg-muted">Select a person to view their photos</p>
+        <p className="text-[13px] text-fg-muted">{t("photogrid_select_person")}</p>
       </div>
     );
   }

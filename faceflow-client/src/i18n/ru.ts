@@ -436,4 +436,41 @@ export const ru: Record<TranslationKey, string> = {
   scan_summary_show_list: "Показать пропущенные файлы",
   scan_summary_hide_list: "Скрыть пропущенные файлы",
   scan_summary_close: "Закрыть",
+
+  // ── Плюральные формы (Russian: one/few/many) ──────────────────────────
+  count_people_one: "{count} человек",
+  count_people_few: "{count} человека",
+  count_people_many: "{count} человек",
+  count_people_other: "{count} человек",
+  count_persons_one: "{count} персона",
+  count_persons_few: "{count} персоны",
+  count_persons_many: "{count} персон",
+  count_persons_other: "{count} персон",
+  count_photos_one: "{count} фото",
+  count_photos_few: "{count} фото",
+  count_photos_many: "{count} фото",
+  count_photos_other: "{count} фото",
+
+  // ── Reveal in Finder (нижняя панель действий) ────────────────────────
+  bottom_bar_reveal: "Показать в Finder",
+
+  // ── Пустое состояние сетки ───────────────────────────────────────────
+  photogrid_select_person: "Выберите персону, чтобы увидеть её фото",
+
+  // ── Подробные стадии сканирования ────────────────────────────────────
+  progress_stage_preview_title: "Извлечение превью",
+  progress_stage_preview_desc: "Достаём встроенные JPEG-превью из RAW-файлов через ExifTool",
+  progress_stage_compress_title: "Подготовка изображений",
+  progress_stage_compress_desc: "Уменьшаем превью, чтобы распознавание лиц работало на полной скорости",
+  progress_stage_detect_title: "Распознавание лиц",
+  progress_stage_detect_desc: "Находим лица и вычисляем эмбеддинги на вашем компьютере",
+  progress_step_label: "Этап {current} из {total}",
+  progress_card_prepared: "Подготовлено",
+  progress_card_analyzed: "Проанализировано",
+  progress_current_file_label: "Текущий файл",
+  progress_current_action_raw: "Читаем {name} (RAW)",
+  progress_current_action_image: "Читаем {name}",
+  progress_current_action_detect: "Распознаём лица в {name}",
+  progress_errors_label: "{count} ошибка",
+  progress_errors_label_other: "{count} ошибок",
 };

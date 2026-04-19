@@ -12,9 +12,36 @@ interface I18nContextValue {
   locale: Locale;
   setLocale: (locale: Locale) => void;
   t: (key: TranslationKey, params?: Record<string, string>) => string;
+  /**
+   * Plural-aware translation.
+   *
+   * Looks up `${keyBase}_one|_few|_many` (Russian) or `${keyBase}_one|_other`
+   * (English) depending on `count` and the active locale, then runs the
+   * usual `{count}` interpolation. Use this for ALL noun phrases that take
+   * a number — Russian has three grammatical forms and the previous
+   * "{count} человек" template produced "2 человек" instead of the correct
+   * "2 человека".
+   */
+  tn: (keyBase: string, count: number, extra?: Record<string, string>) => string;
   theme: Theme;
   setTheme: (theme: Theme) => void;
   resolvedTheme: "dark" | "light";
+}
+
+/**
+ * Slavic plural form selector. Returns "one" / "few" / "many" using the
+ * standard CLDR rules for Russian.
+ *  - 1, 21, 31, ... (mod 10 = 1, mod 100 ≠ 11) → one  ("1 человек")
+ *  - 2-4, 22-24, ... (mod 10 in 2..4, mod 100 not in 12..14) → few  ("2 человека")
+ *  - everything else (0, 5-20, 25-30, ...) → many  ("5 человек")
+ */
+function ruPluralForm(n: number): "one" | "few" | "many" {
+  const abs = Math.abs(n);
+  const mod10 = abs % 10;
+  const mod100 = abs % 100;
+  if (mod10 === 1 && mod100 !== 11) return "one";
+  if (mod10 >= 2 && mod10 <= 4 && (mod100 < 12 || mod100 > 14)) return "few";
+  return "many";
 }
 
 const I18nContext = createContext<I18nContextValue | null>(null);
@@ -95,8 +122,23 @@ export function I18nProvider({ children }: { children: ReactNode }) {
     [locale],
   );
 
+  const tn = useCallback(
+    (keyBase: string, count: number, extra?: Record<string, string>): string => {
+      const suffix =
+        locale === "ru"
+          ? ruPluralForm(count)
+          : count === 1
+            ? "one"
+            : "other";
+      const key = `${keyBase}_${suffix}` as TranslationKey;
+      const params = { count: String(count), ...(extra ?? {}) };
+      return t(key, params);
+    },
+    [locale, t],
+  );
+
   return (
-    <I18nContext.Provider value={{ locale, setLocale, t, theme, setTheme, resolvedTheme }}>
+    <I18nContext.Provider value={{ locale, setLocale, t, tn, theme, setTheme, resolvedTheme }}>
       {children}
     </I18nContext.Provider>
   );

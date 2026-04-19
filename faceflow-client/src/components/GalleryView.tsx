@@ -1160,6 +1160,12 @@ export const GalleryView: React.FC<GalleryViewProps> = ({ groups, noFaceFiles, l
             onClearStatus={() => setPickStatus(targetPaths, "none")}
             onRate={(r) => setRating(targetPaths, r)}
             onSetColorLabel={(label) => setColorLabel(targetPaths, label)}
+            onReveal={() => {
+              if (targetPaths.length === 0) return;
+              invoke("reveal_in_finder", { filePaths: targetPaths }).catch((e) =>
+                console.error("reveal_in_finder failed", e),
+              );
+            }}
             onCompare={photoMode ? () => setShowCompare(true) : undefined}
           />
         );

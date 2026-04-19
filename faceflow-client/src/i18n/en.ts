@@ -434,6 +434,49 @@ export const en = {
   scan_summary_show_list: "Show skipped files",
   scan_summary_hide_list: "Hide skipped files",
   scan_summary_close: "Close",
+
+  // ── Plural-aware count templates ─────────────────────────────────────
+  // Use via `tn("count_people", n)` etc. Each base key has `_one` / `_other`
+  // (English) and `_one` / `_few` / `_many` (Russian) variants. The latter
+  // is required because Russian has three grammatical number forms.
+  count_people_one: "{count} person",
+  count_people_other: "{count} people",
+  // Russian-only "few" — TS still demands they exist on the EN object so
+  // the type stays exhaustive across both locales. Falling back to `_other`
+  // keeps the English UI grammatically correct.
+  count_people_few: "{count} people",
+  count_people_many: "{count} people",
+  count_persons_one: "{count} person",
+  count_persons_other: "{count} persons",
+  count_persons_few: "{count} persons",
+  count_persons_many: "{count} persons",
+  count_photos_one: "{count} photo",
+  count_photos_other: "{count} photos",
+  count_photos_few: "{count} photos",
+  count_photos_many: "{count} photos",
+
+  // ── Reveal in Finder (bottom action bar) ─────────────────────────────
+  bottom_bar_reveal: "Reveal in Finder",
+
+  // ── PhotoGrid empty state ────────────────────────────────────────────
+  photogrid_select_person: "Select a person to view their photos",
+
+  // ── ProgressView granular stage labels ───────────────────────────────
+  progress_stage_preview_title: "Extracting previews",
+  progress_stage_preview_desc: "Pulling embedded JPEG previews from RAW files via ExifTool",
+  progress_stage_compress_title: "Preparing images",
+  progress_stage_compress_desc: "Resizing previews so face detection runs at full speed",
+  progress_stage_detect_title: "Detecting faces",
+  progress_stage_detect_desc: "Locating faces and computing identity embeddings on-device",
+  progress_step_label: "Step {current} of {total}",
+  progress_card_prepared: "Prepared",
+  progress_card_analyzed: "Analyzed",
+  progress_current_file_label: "Current file",
+  progress_current_action_raw: "Reading {name} (RAW)",
+  progress_current_action_image: "Reading {name}",
+  progress_current_action_detect: "Detecting faces in {name}",
+  progress_errors_label: "{count} error",
+  progress_errors_label_other: "{count} errors",
 } as const;
 
 export type TranslationKey = keyof typeof en;

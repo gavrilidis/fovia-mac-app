@@ -118,7 +118,7 @@ export const Toolbar: React.FC<ToolbarProps> = ({
   void _spp; void _mm; void _osr; void _oscl; void _osps;
   void _orp; void _oe; void _oex; void _oc;
   void _g; void _gn; void _agi; void _omp; void _ocgm;
-  const { t } = useI18n();
+  const { t, tn } = useI18n();
   const handleWindowDrag = useCallback((e: React.MouseEvent) => {
     if ((e.target as HTMLElement).closest("button, input, a, select, textarea")) return;
     getCurrentWindow().startDragging();
@@ -158,7 +158,7 @@ export const Toolbar: React.FC<ToolbarProps> = ({
           <span className="text-[13px] font-semibold tracking-tight text-fg">FaceFlow</span>
           <div className="h-3 w-px bg-edge" />
           <span className="text-[11px] tabular-nums text-fg-muted">
-            {groupCount} {groupCount === 1 ? t("person") : t("toolbar_people").replace("{count}", "").trim()}
+            {tn("count_people", groupCount)}
           </span>
         </div>
 

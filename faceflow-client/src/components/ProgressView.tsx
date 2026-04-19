@@ -9,6 +9,23 @@ interface ProgressViewProps {
   isResume?: boolean;
 }
 
+const RAW_EXTENSIONS = new Set([
+  "raw", "rw2", "raf", "arw", "nef", "cr2", "cr3", "dng", "orf", "pef", "srw", "x3f",
+]);
+
+function basename(p: string): string {
+  if (!p) return "";
+  // Handle both POSIX and Windows separators just in case.
+  const idx = Math.max(p.lastIndexOf("/"), p.lastIndexOf("\\"));
+  return idx >= 0 ? p.slice(idx + 1) : p;
+}
+
+function isRaw(p: string): boolean {
+  const dot = p.lastIndexOf(".");
+  if (dot < 0) return false;
+  return RAW_EXTENSIONS.has(p.slice(dot + 1).toLowerCase());
+}
+
 export const ProgressView: React.FC<ProgressViewProps> = ({ progress, isResume }) => {
   const { t } = useI18n();
   const [stopRequested, setStopRequested] = useState(false);
@@ -28,27 +45,50 @@ export const ProgressView: React.FC<ProgressViewProps> = ({ progress, isResume }
     }
   }, [stopRequested]);
 
-  // During compressing, show files_read progress; otherwise show processed (detection) progress
-  const effectiveProgress =
-    isCompressing || (progress.processed === 0 && progress.files_read > 0)
-      ? progress.files_read
-      : progress.processed;
-  const percentage =
-    progress.total_files > 0
-      ? Math.round((effectiveProgress / progress.total_files) * 100)
-      : 0;
+  // ── Unified progress model ────────────────────────────────────────────
+  // The scan goes through TWO sequential stages:
+  //   1. Preparing previews   (extract JPEG / resize)  → tracks `files_read`
+  //   2. Detecting faces      (InsightFace inference)  → tracks `processed`
+  //
+  // Previously each stage drove its OWN 0–100 % bar, so when stage 2 began
+  // the bar JUMPED back from "high files_read" to "low processed". Now we
+  // map each stage to half of the total bar so the bar only ever moves
+  // forward and never resets.
+  const total = Math.max(1, progress.total_files);
+  const prepFraction = Math.min(1, progress.files_read / total);
+  const detectFraction = Math.min(1, progress.processed / total);
+  // When detection has started we assume preparation is complete (true for
+  // the current pipeline — preparation always finishes before detection
+  // begins for any given file batch).
+  const stage1Done = isDetecting ? 1 : prepFraction;
+  const stage2Done = isDetecting ? detectFraction : 0;
+  const percentage = Math.round((stage1Done * 50 + stage2Done * 50));
+  const stepIndex = isDetecting ? 2 : 1;
 
+  // ── Stage labels ──────────────────────────────────────────────────────
   const phaseTitle = isDetecting
-    ? "Detecting Faces"
+    ? t("progress_stage_detect_title")
     : isCompressing
-      ? "Preparing Images"
-      : "Extracting Previews";
+      ? t("progress_stage_compress_title")
+      : t("progress_stage_preview_title");
 
   const phaseDesc = isDetecting
-    ? "Analyzing images with InsightFace AI"
+    ? t("progress_stage_detect_desc")
     : isCompressing
-      ? `Resizing image ${progress.files_read} of ${progress.total_files}`
-      : "Extracting embedded previews from RAW files";
+      ? t("progress_stage_compress_desc")
+      : t("progress_stage_preview_desc");
+
+  // Per-file action text — describes what's happening to THIS specific file
+  // right now. Replaces the noisy "Resizing image N of M" line that flipped
+  // back and forth and contributed to the perceived "jumpiness".
+  const currentFileName = basename(progress.current_file ?? "");
+  const currentAction = currentFileName
+    ? isDetecting
+      ? t("progress_current_action_detect", { name: currentFileName })
+      : isRaw(currentFileName)
+        ? t("progress_current_action_raw", { name: currentFileName })
+        : t("progress_current_action_image", { name: currentFileName })
+    : "";
 
   const handleWindowDrag = useCallback((e: React.MouseEvent) => {
     if ((e.target as HTMLElement).closest("button, input, a, select, textarea")) return;
@@ -91,9 +131,12 @@ export const ProgressView: React.FC<ProgressViewProps> = ({ progress, isResume }
               )}
             </div>
             <div className="pt-0.5">
-              <h2 className="text-[17px] font-semibold text-fg">
-                {phaseTitle}
-              </h2>
+              <div className="flex items-center gap-2">
+                <h2 className="text-[17px] font-semibold text-fg">{phaseTitle}</h2>
+                <span className="rounded-full border border-edge px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wider text-fg-muted">
+                  {t("progress_step_label", { current: String(stepIndex), total: "2" })}
+                </span>
+              </div>
               <p className="mt-1.5 text-[13px] leading-relaxed text-fg-muted">
                 {phaseDesc}
               </p>
@@ -169,25 +212,43 @@ export const ProgressView: React.FC<ProgressViewProps> = ({ progress, isResume }
           </div>
         )}
 
-        {/* Progress bar */}
-        <div className="mb-14 h-4 w-full overflow-hidden rounded-full bg-surface-elevated">
-          <div
-            className={`h-full rounded-full transition-all duration-500 ease-out ${
-              isDetecting
-                ? "bg-gradient-to-r from-accent to-positive"
-                : isCompressing
-                  ? "bg-gradient-to-r from-accent to-purple-500"
-                  : "bg-accent"
-            }`}
-            style={{ width: `${percentage}%` }}
-          />
+        {/* Two-segment progress bar.
+            Stage 1 (preparing previews) fills the left half (0–50 %).
+            Stage 2 (detecting faces)    fills the right half (50–100 %).
+            A thin tick at 50 % marks the boundary between stages. */}
+        <div className="mb-3 h-4 w-full overflow-hidden rounded-full bg-surface-elevated">
+          <div className="flex h-full w-full">
+            <div className="relative h-full w-1/2 overflow-hidden">
+              <div
+                className="h-full bg-gradient-to-r from-accent/70 to-accent transition-[width] duration-500 ease-out"
+                style={{ width: `${stage1Done * 100}%` }}
+              />
+            </div>
+            <div className="h-full w-px bg-surface-alt/60" />
+            <div className="relative h-full w-1/2 overflow-hidden">
+              <div
+                className="h-full bg-gradient-to-r from-accent to-positive transition-[width] duration-500 ease-out"
+                style={{ width: `${stage2Done * 100}%` }}
+              />
+            </div>
+          </div>
+        </div>
+        {/* Stage legend below the bar — makes it obvious which half the
+            bar is currently filling and what comes next. */}
+        <div className="mb-12 flex justify-between text-[10px] font-medium uppercase tracking-wider">
+          <span className={stepIndex === 1 ? "text-accent" : "text-fg-muted"}>
+            1. {t("progress_stage_preview_title")}
+          </span>
+          <span className={stepIndex === 2 ? "text-accent" : "text-fg-muted"}>
+            2. {t("progress_stage_detect_title")}
+          </span>
         </div>
 
         {/* Stats grid */}
         <div className="grid grid-cols-3 gap-7">
           <div className="rounded-2xl bg-surface-elevated/50 px-7 py-7">
             <p className="text-[11px] font-medium uppercase tracking-wide text-fg-muted">
-              Prepared
+              {t("progress_card_prepared")}
             </p>
             <p className="mt-2.5 text-xl font-semibold tabular-nums text-fg">
               {progress.files_read}
@@ -198,7 +259,7 @@ export const ProgressView: React.FC<ProgressViewProps> = ({ progress, isResume }
           </div>
           <div className="rounded-2xl bg-surface-elevated/50 px-7 py-7">
             <p className="text-[11px] font-medium uppercase tracking-wide text-fg-muted">
-              Analyzed
+              {t("progress_card_analyzed")}
             </p>
             <p className="mt-2.5 text-xl font-semibold tabular-nums text-fg">
               {progress.processed}
@@ -220,17 +281,18 @@ export const ProgressView: React.FC<ProgressViewProps> = ({ progress, isResume }
           </div>
         </div>
 
-        {/* Current file */}
-        {progress.current_file && (
+        {/* Current file — now shows a phase-aware action sentence instead
+            of a bare path so the user can read what the app is doing. */}
+        {currentAction && (
           <div className="mt-8 rounded-2xl bg-surface-elevated/50 px-7 py-7">
             <p className="text-[11px] font-medium uppercase tracking-wide text-fg-muted">
-              Current file
+              {t("progress_current_file_label")}
             </p>
             <p
               className="mt-2 truncate text-[13px] text-fg"
-              title={progress.current_file}
+              title={progress.current_file ?? ""}
             >
-              {progress.current_file}
+              {currentAction}
             </p>
           </div>
         )}
@@ -253,7 +315,9 @@ export const ProgressView: React.FC<ProgressViewProps> = ({ progress, isResume }
             </svg>
             <div className="min-w-0">
               <p className="text-[13px] font-medium text-negative">
-                {progress.errors} error{progress.errors !== 1 ? "s" : ""}
+                {progress.errors === 1
+                  ? t("progress_errors_label", { count: String(progress.errors) })
+                  : t("progress_errors_label_other", { count: String(progress.errors) })}
               </p>
               {progress.last_error && (
                 <p className="mt-1.5 text-[12px] text-negative/70" title={progress.last_error}>

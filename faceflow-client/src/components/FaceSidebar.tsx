@@ -62,7 +62,7 @@ export const FaceSidebar: React.FC<FaceSidebarProps> = ({
   // backwards-compat with the existing wiring in GalleryView.
   void _ors; void _ods; void _oms;
   void _oasp; void _osrsp; void _osclsp; void _ospsp; void _oesp; void _oexsp;
-  const { t } = useI18n();
+  const { t, tn } = useI18n();
   const [hoveredGroup, setHoveredGroup] = useState<string | null>(null);
   const [hoverY, setHoverY] = useState(0);
   const [editingGroupId, setEditingGroupId] = useState<string | null>(null);
@@ -139,7 +139,7 @@ export const FaceSidebar: React.FC<FaceSidebarProps> = ({
                       {t("sidebar_all_photos")}
                     </div>
                     <div className="mt-px text-[10px] tabular-nums text-fg-muted">
-                      {allPhotosCount} {t("photos")}
+                      {tn("count_photos", allPhotosCount)}
                     </div>
                   </div>
                 </button>
@@ -235,15 +235,15 @@ export const FaceSidebar: React.FC<FaceSidebarProps> = ({
                         onDoubleClick={(e) => {
                           e.stopPropagation();
                           setEditingGroupId(group.id);
-                          setEditValue(groupNames.get(group.id) || `Person ${idx + 1}`);
+                          setEditValue(groupNames.get(group.id) || `${t("person")} ${idx + 1}`);
                         }}
                       >
-                        {groupNames.get(group.id) || `Person ${idx + 1}`}
+                        {groupNames.get(group.id) || `${t("person")} ${idx + 1}`}
                       </div>
                     )}
                     <div className="mt-px flex items-center gap-1.5">
                       <span className="text-[10px] tabular-nums text-fg-muted">
-                        {group.members.length} photo{group.members.length !== 1 ? "s" : ""}
+                        {tn("count_photos", group.members.length)}
                       </span>
                       {(selectedCountPerGroup.get(group.id) || 0) > 0 && (
                         <span className="inline-flex h-4 min-w-4 items-center justify-center rounded-full bg-accent/20 px-1 text-[9px] tabular-nums font-semibold text-accent">
@@ -284,7 +284,7 @@ export const FaceSidebar: React.FC<FaceSidebarProps> = ({
                       {t("sidebar_no_faces")}
                     </div>
                     <div className="mt-px text-[10px] tabular-nums text-fg-muted">
-                      {noFaceCount} {noFaceCount !== 1 ? t("photos") : t("photos")}
+                      {tn("count_photos", noFaceCount)}
                     </div>
                   </div>
                 </button>
@@ -317,7 +317,7 @@ export const FaceSidebar: React.FC<FaceSidebarProps> = ({
                     {t("sidebar_low_quality")}
                   </div>
                   <div className="mt-px text-[10px] tabular-nums text-fg-muted">
-                    {lowQualityCount} {t("photos")}
+                    {tn("count_photos", lowQualityCount)}
                   </div>
                 </div>
               </button>
