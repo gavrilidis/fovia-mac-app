@@ -1167,6 +1167,11 @@ export const GalleryView: React.FC<GalleryViewProps> = ({ groups, noFaceFiles, l
               );
             }}
             onCompare={photoMode ? () => setShowCompare(true) : undefined}
+            groups={photoMode ? mutableGroups : undefined}
+            groupNames={photoMode ? groupNames : undefined}
+            activeGroupId={photoMode ? activeGroupId : undefined}
+            onMovePhotos={photoMode ? handleMovePhotos : undefined}
+            onCreateGroupAndMove={photoMode ? handleCreateGroupAndMove : undefined}
           />
         );
       })()}

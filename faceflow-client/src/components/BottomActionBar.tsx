@@ -1,7 +1,7 @@
 import React from "react";
 import { useI18n } from "../i18n";
 import { ColorLabelPicker } from "./ColorLabelPicker";
-import type { ColorLabel } from "../types";
+import type { ColorLabel, FaceGroup } from "../types";
 
 interface BottomActionBarProps {
   selectedCount: number;
@@ -19,6 +19,14 @@ interface BottomActionBarProps {
   // Current color label across the selection ("none" when mixed/empty).
   // Used to highlight the active color in the picker.
   currentColorLabel?: ColorLabel;
+  // Move-to-person: when provided, renders a "Move to…" dropdown
+  // letting the user reassign selected photos to a different person
+  // group or a brand-new one.
+  groups?: FaceGroup[];
+  groupNames?: Map<string, string>;
+  activeGroupId?: string | null;
+  onMovePhotos?: (targetGroupId: string) => void;
+  onCreateGroupAndMove?: () => void;
 }
 
 const Icon: React.FC<{ d: string; className?: string }> = ({ d, className }) => (
@@ -42,6 +50,8 @@ const ICONS = {
   download: "M21 15v4a2 2 0 01-2 2H5a2 2 0 01-2-2v-4M7 10l5 5 5-5M12 15V3",
   trash: "M3 6h18M19 6v14a2 2 0 01-2 2H7a2 2 0 01-2-2V6m3 0V4a2 2 0 012-2h4a2 2 0 012 2v2",
   folder: "M3 7a2 2 0 012-2h4l2 2h8a2 2 0 012 2v8a2 2 0 01-2 2H5a2 2 0 01-2-2V7z",
+  moveTo: "M4 12h12m0 0l-4-4m4 4l-4 4M20 4v16",
+  userPlus: "M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2M9 11a4 4 0 1 0 0-8 4 4 0 0 0 0 8zM19 8v6M22 11h-6",
 };
 
 /**
@@ -64,9 +74,38 @@ export const BottomActionBar: React.FC<BottomActionBarProps> = ({
   onCompare,
   onReveal,
   currentColorLabel = "none",
+  groups,
+  groupNames,
+  activeGroupId,
+  onMovePhotos,
+  onCreateGroupAndMove,
 }) => {
   const { t } = useI18n();
+  const [moveMenuOpen, setMoveMenuOpen] = React.useState(false);
+  const moveMenuRef = React.useRef<HTMLDivElement | null>(null);
+
+  React.useEffect(() => {
+    if (!moveMenuOpen) return;
+    const onDocClick = (e: MouseEvent) => {
+      if (moveMenuRef.current && !moveMenuRef.current.contains(e.target as Node)) {
+        setMoveMenuOpen(false);
+      }
+    };
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === "Escape") setMoveMenuOpen(false);
+    };
+    document.addEventListener("mousedown", onDocClick);
+    document.addEventListener("keydown", onKey);
+    return () => {
+      document.removeEventListener("mousedown", onDocClick);
+      document.removeEventListener("keydown", onKey);
+    };
+  }, [moveMenuOpen]);
+
   if (selectedCount <= 0) return null;
+
+  const showMoveTo = !!(onMovePhotos && onCreateGroupAndMove && groups);
+  const movableGroups = showMoveTo ? (groups ?? []).filter((g) => g.id !== activeGroupId) : [];
 
   return (
     <div
@@ -157,6 +196,79 @@ export const BottomActionBar: React.FC<BottomActionBarProps> = ({
             <Icon d={ICONS.folder} />
             <span>{t("bottom_bar_reveal")}</span>
           </button>
+        </>
+      )}
+
+      {showMoveTo && (
+        <>
+          <div className="mx-1 h-5 w-px bg-edge" />
+          <div className="relative" ref={moveMenuRef}>
+            <button
+              onClick={() => setMoveMenuOpen((v) => !v)}
+              className={`flex items-center gap-1.5 rounded-md px-2 py-1 text-[11px] font-medium transition-colors ${
+                moveMenuOpen
+                  ? "bg-accent/20 text-accent"
+                  : "text-fg-muted hover:bg-surface hover:text-fg"
+              }`}
+              title={t("toolbar_move_to")}
+              aria-haspopup="menu"
+            >
+              <Icon d={ICONS.moveTo} />
+              <span>{t("toolbar_move_to")}</span>
+              <svg className="h-3 w-3" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2} strokeLinecap="round" strokeLinejoin="round">
+                <path d="m18 15-6-6-6 6" />
+              </svg>
+            </button>
+            {moveMenuOpen && (
+              <div
+                role="menu"
+                className="absolute bottom-full left-0 z-40 mb-1 max-h-72 w-56 overflow-y-auto rounded-lg border border-edge bg-surface-elevated py-1 shadow-xl shadow-black/40"
+              >
+                <button
+                  role="menuitem"
+                  onClick={() => {
+                    setMoveMenuOpen(false);
+                    onCreateGroupAndMove?.();
+                  }}
+                  className="flex w-full items-center gap-2 px-3 py-1.5 text-left text-[12px] text-accent transition-colors hover:bg-accent/10"
+                >
+                  <Icon d={ICONS.userPlus} className="h-3.5 w-3.5" />
+                  <span className="font-medium">{t("toolbar_new_person")}</span>
+                </button>
+                {movableGroups.length > 0 && (
+                  <div className="my-1 h-px bg-edge" />
+                )}
+                {movableGroups.map((g, idx) => {
+                  const name = groupNames?.get(g.id) || `${t("person")} ${idx + 1}`;
+                  return (
+                    <button
+                      key={g.id}
+                      role="menuitem"
+                      onClick={() => {
+                        setMoveMenuOpen(false);
+                        onMovePhotos?.(g.id);
+                      }}
+                      className="flex w-full items-center gap-2 px-3 py-1.5 text-left text-[12px] text-fg transition-colors hover:bg-surface"
+                    >
+                      <div className="h-6 w-6 flex-shrink-0 overflow-hidden rounded-full bg-surface">
+                        {g.representative.preview_base64 ? (
+                          <img
+                            src={`data:image/jpeg;base64,${g.representative.preview_base64}`}
+                            alt=""
+                            className="h-full w-full object-cover"
+                          />
+                        ) : null}
+                      </div>
+                      <span className="min-w-0 flex-1 truncate">{name}</span>
+                      <span className="text-[10px] tabular-nums text-fg-muted">
+                        {g.members.length}
+                      </span>
+                    </button>
+                  );
+                })}
+              </div>
+            )}
+          </div>
         </>
       )}
 

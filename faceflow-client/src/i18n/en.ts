@@ -454,6 +454,10 @@ export const en = {
   count_photos_other: "{count} photos",
   count_photos_few: "{count} photos",
   count_photos_many: "{count} photos",
+  count_selected_persons_one: "{count} person selected",
+  count_selected_persons_other: "{count} persons selected",
+  count_selected_persons_few: "{count} persons selected",
+  count_selected_persons_many: "{count} persons selected",
 
   // ── Reveal in Finder (bottom action bar) ─────────────────────────────
   bottom_bar_reveal: "Reveal in Finder",

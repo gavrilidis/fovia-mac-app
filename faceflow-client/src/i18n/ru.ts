@@ -450,6 +450,10 @@ export const ru: Record<TranslationKey, string> = {
   count_photos_few: "{count} фото",
   count_photos_many: "{count} фото",
   count_photos_other: "{count} фото",
+  count_selected_persons_one: "Выбрана {count} персона",
+  count_selected_persons_few: "Выбрано {count} персоны",
+  count_selected_persons_many: "Выбрано {count} персон",
+  count_selected_persons_other: "Выбрано {count} персон",
 
   // ── Reveal in Finder (нижняя панель действий) ────────────────────────
   bottom_bar_reveal: "Показать в Finder",

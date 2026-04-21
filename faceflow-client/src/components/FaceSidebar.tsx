@@ -47,8 +47,8 @@ export const FaceSidebar: React.FC<FaceSidebarProps> = ({
   onSelectAllPersons,
   onDeselectAllPersons,
   onRevealSelected: _ors,
-  onDeleteSelected: _ods,
-  onMergeSelected: _oms,
+  onDeleteSelected,
+  onMergeSelected,
   onRenameGroup,
   onAiAnalyzeSelectedPersons: _oasp,
   onSetRatingForSelectedPersons: _osrsp,
@@ -57,10 +57,10 @@ export const FaceSidebar: React.FC<FaceSidebarProps> = ({
   onExportSelectedPersons: _oesp,
   onExportXmpSelectedPersons: _oexsp,
 }) => {
-  // Discard the bulk-action callbacks: they are now handled by
-  // BottomActionBar in GalleryView. The props remain in the interface for
-  // backwards-compat with the existing wiring in GalleryView.
-  void _ors; void _ods; void _oms;
+  // Per-photo bulk actions are owned by BottomActionBar; person-level
+  // actions (merge / remove-from-view) stay in the sidebar where the
+  // selection itself lives.
+  void _ors;
   void _oasp; void _osrsp; void _osclsp; void _ospsp; void _oesp; void _oexsp;
   const { t, tn } = useI18n();
   const [hoveredGroup, setHoveredGroup] = useState<string | null>(null);
@@ -326,10 +326,53 @@ export const FaceSidebar: React.FC<FaceSidebarProps> = ({
         </div>
       </div>
 
-      {/* Bulk action UI was removed from the sidebar. All bulk actions on
-          the current selection are owned by the unified BottomActionBar
-          rendered by GalleryView, so users see a single, consistent
-          surface instead of three parallel toolbars. */}
+      {/* Person-level contextual actions. Appears only when the user
+          has checked persons in the sidebar. Photo-level bulk actions
+          live in the unified BottomActionBar. */}
+      {selectedGroupIds.size > 0 && (
+        <div className="flex-shrink-0 border-t border-edge bg-surface-elevated/80 px-2 py-2 backdrop-blur">
+          <div className="mb-1.5 flex items-center justify-between px-1">
+            <span className="text-[10px] font-semibold uppercase tracking-[0.1em] text-fg-muted">
+              {tn("count_selected_persons", selectedGroupIds.size)}
+            </span>
+            <button
+              onClick={onDeselectAllPersons}
+              className="text-[10px] font-medium text-fg-muted transition-colors hover:text-fg"
+              title={t("photogrid_deselect_all")}
+            >
+              {t("photogrid_deselect_all")}
+            </button>
+          </div>
+          <div className="flex items-center gap-1">
+            <button
+              onClick={onMergeSelected}
+              disabled={selectedGroupIds.size < 2}
+              title={t("sidebar_merge")}
+              className="flex flex-1 items-center justify-center gap-1.5 rounded-md bg-accent px-2 py-1.5 text-[11px] font-semibold text-white transition-colors hover:bg-accent-hover disabled:cursor-not-allowed disabled:bg-surface disabled:text-fg-muted"
+            >
+              <svg className="h-3.5 w-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2} strokeLinecap="round" strokeLinejoin="round">
+                <path d="M8 3H5a2 2 0 0 0-2 2v3" />
+                <path d="M21 8V5a2 2 0 0 0-2-2h-3" />
+                <path d="M3 16v3a2 2 0 0 0 2 2h3" />
+                <path d="M16 21h3a2 2 0 0 0 2-2v-3" />
+                <path d="M9 12h6" />
+                <path d="m12 9 3 3-3 3" />
+              </svg>
+              <span>{t("sidebar_merge")}</span>
+            </button>
+            <button
+              onClick={onDeleteSelected}
+              title={t("sidebar_remove_persons")}
+              aria-label={t("sidebar_remove_persons")}
+              className="flex h-7 w-7 items-center justify-center rounded-md border border-edge text-fg-muted transition-colors hover:border-negative/50 hover:bg-negative/10 hover:text-negative"
+            >
+              <svg className="h-3.5 w-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2} strokeLinecap="round" strokeLinejoin="round">
+                <path d="M18 6L6 18M6 6l12 12" />
+              </svg>
+            </button>
+          </div>
+        </div>
+      )}
     </div>
   );
 };

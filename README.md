@@ -25,23 +25,17 @@ Professional desktop utility for expedition photographers. Automates sorting of 
 
 ## Installation (End Users)
 
-1. Download the latest `.dmg` from [Releases](https://github.com/gavrilidis/faceflow/releases)
-2. Drag **FaceFlow** to `/Applications`
-3. **Important — macOS Gatekeeper**: FaceFlow is not yet signed with an Apple Developer certificate. Choose one of two methods to allow it:
-
-   **Option A — System Settings (recommended):**
-   - Try opening FaceFlow — macOS will block it
-   - Go to **System Settings → Privacy & Security**
-   - Find the "FaceFlow was blocked" message and click **Open Anyway**
-   - Open FaceFlow again and click **Open**
-
-   **Option B — Terminal:**
-   ```bash
-   xattr -cr "/Applications/FaceFlow.app"
-   ```
-
-4. Enter your license key (internet required for first-time activation)
-5. FaceFlow will automatically download AI models (~183 MB) on first launch
+1. Download the latest `.dmg` from [Releases](https://github.com/gavrilidis/faceflow/releases).
+2. Open the DMG and drag **FaceFlow** onto the **Applications** folder.
+3. **First launch on macOS.** FaceFlow ships ad-hoc signed during the
+   beta phase. A one-time Gatekeeper override is required — pick any
+   one of the three methods documented in the `How to open FaceFlow.pdf`
+   that sits inside the DMG, or see [docs/INSTALL.md](docs/INSTALL.md):
+   - **Method 1 (recommended):** Right-click FaceFlow in Applications → **Open** → **Open**.
+   - **Method 2:** Try launching once, then **System Settings → Privacy & Security → Open Anyway**.
+   - **Method 3:** `xattr -dr com.apple.quarantine /Applications/FaceFlow.app` in Terminal.
+4. Enter your license key (internet required for first-time activation).
+5. FaceFlow will automatically download AI models (~183 MB) on first launch.
 
 ### System Requirements
 
