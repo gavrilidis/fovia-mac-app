@@ -27,6 +27,9 @@ interface BottomActionBarProps {
   activeGroupId?: string | null;
   onMovePhotos?: (targetGroupId: string) => void;
   onCreateGroupAndMove?: () => void;
+  /** When provided, renders an AI Analyze button. Pass only when AI is
+   *  configured and there is a meaningful selection to analyse. */
+  onAiAnalyze?: () => void;
 }
 
 const Icon: React.FC<{ d: string; className?: string }> = ({ d, className }) => (
@@ -54,6 +57,12 @@ const ICONS = {
   userPlus: "M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2M9 11a4 4 0 1 0 0-8 4 4 0 0 0 0 8zM19 8v6M22 11h-6",
 };
 
+const SparkleIcon: React.FC = () => (
+  <svg className="h-3.5 w-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.5}>
+    <path strokeLinecap="round" strokeLinejoin="round" d="M9.813 15.904L9 18.75l-.813-2.846a4.5 4.5 0 00-3.09-3.09L2.25 12l2.846-.813a4.5 4.5 0 003.09-3.09L9 5.25l.813 2.846a4.5 4.5 0 003.09 3.09L15.75 12l-2.846.813a4.5 4.5 0 00-3.09 3.09zM18.259 8.715L18 9.75l-.259-1.035a3.375 3.375 0 00-2.455-2.456L14.25 6l1.036-.259a3.375 3.375 0 002.455-2.456L18 2.25l.259 1.035a3.375 3.375 0 002.455 2.456L21.75 6l-1.036.259a3.375 3.375 0 00-2.455 2.456z" />
+  </svg>
+);
+
 /**
  * Bottom action bar — a true *bar*, not a floating pill. Pinned to the
  * bottom of the gallery layout, full width, single height. Appears the
@@ -79,6 +88,7 @@ export const BottomActionBar: React.FC<BottomActionBarProps> = ({
   activeGroupId,
   onMovePhotos,
   onCreateGroupAndMove,
+  onAiAnalyze,
 }) => {
   const { t } = useI18n();
   const [moveMenuOpen, setMoveMenuOpen] = React.useState(false);
@@ -180,6 +190,21 @@ export const BottomActionBar: React.FC<BottomActionBarProps> = ({
             title={t("bottom_bar_compare", { count: String(selectedCount) })}
           >
             {t("bottom_bar_compare", { count: String(selectedCount) })}
+          </button>
+        </>
+      )}
+
+      {onAiAnalyze && (
+        <>
+          <div className="mx-1 h-5 w-px bg-edge" />
+          <button
+            onClick={onAiAnalyze}
+            className="flex items-center gap-1.5 rounded-md px-2 py-1 text-[11px] font-medium text-fg-muted transition-colors hover:bg-accent/15 hover:text-accent"
+            title={t("ai_analyze_selected")}
+            aria-label={t("ai_analyze_selected")}
+          >
+            <SparkleIcon />
+            <span>{t("ai_analyze")}</span>
           </button>
         </>
       )}

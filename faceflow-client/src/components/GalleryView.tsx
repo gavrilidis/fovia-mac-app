@@ -494,6 +494,26 @@ export const GalleryView: React.FC<GalleryViewProps> = ({ groups, noFaceFiles, l
     };
   }, [handleSelectAll, handleDeselectAll]);
 
+  // AI bulk for selected persons: temporarily promote the resolved paths
+  // to "selected photos" and reuse the existing AI picker pipeline.
+  const handleAiAnalyzeForSelectedPersons = useCallback(async () => {
+    if (selectedPersonsPhotoPaths.length === 0) return;
+    if (!(await isAiConfigured(getAiProvider()))) {
+      setAiStatus("API key not configured — open Settings to add one");
+      setTimeout(() => setAiStatus(null), 4000);
+      return;
+    }
+    // Map person selections back to face_ids so the existing runAiTasks
+    // flow picks them up via its `selectedPhotoIds` branch.
+    const ids = new Set<string>();
+    for (const g of mutableGroups) {
+      if (!selectedGroupIds.has(g.id)) continue;
+      for (const m of g.members) ids.add(m.face_id);
+    }
+    setSelectedPhotoIds(ids);
+    setAiPickerOpen(true);
+  }, [mutableGroups, selectedGroupIds, selectedPersonsPhotoPaths]);
+
   // AI flow: open task picker first
   const handleAiAnalyze = useCallback(async () => {
     if (!(await isAiConfigured(getAiProvider()))) {
@@ -1084,6 +1104,7 @@ export const GalleryView: React.FC<GalleryViewProps> = ({ groups, noFaceFiles, l
               );
             }}
             onCompare={photoMode ? () => setShowCompare(true) : undefined}
+            onAiAnalyze={personMode && aiConfigured ? handleAiAnalyzeForSelectedPersons : undefined}
             groups={photoMode ? mutableGroups : undefined}
             groupNames={photoMode ? groupNames : undefined}
             activeGroupId={photoMode ? activeGroupId : undefined}
