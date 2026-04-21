@@ -191,7 +191,17 @@ function App() {
   }, [handleRetryModels]);
 
   const runScan = useCallback(
-    async (folderPath: string, detectionThreshold: number, resume: boolean) => {
+    async (
+      folderPath: string,
+      detectionThreshold: number,
+      resume: boolean,
+      // Optional override — used when the user just moved the slider on
+      // DropZone. Without this, the closure captures the stale
+      // `faceMatchThreshold` because React state updates are async, so
+      // the freshly-picked similarity would not take effect until the
+      // *next* scan.
+      clusterOverride?: number,
+    ) => {
       setView("progress");
       setIsResumeScan(resume);
       setError(null);
@@ -217,7 +227,11 @@ function App() {
           resume,
         });
 
-        const { groups, lowQualityFaces: lowFaces } = await groupFacesByIdentity(result.faces, faceMatchThreshold);
+        const effectiveThreshold =
+          typeof clusterOverride === "number" && Number.isFinite(clusterOverride)
+            ? clusterOverride
+            : faceMatchThreshold;
+        const { groups, lowQualityFaces: lowFaces } = await groupFacesByIdentity(result.faces, effectiveThreshold);
         setFaceGroups(groups);
         setNoFaceFiles(result.no_face_files);
         setLowQualityFaces(lowFaces);
@@ -281,7 +295,7 @@ function App() {
       } catch {
         // Non-critical — proceed with a fresh scan.
       }
-      await runScan(folderPath, detectionThreshold, false);
+      await runScan(folderPath, detectionThreshold, false, clusterSimilarity);
     },
     [runScan],
   );

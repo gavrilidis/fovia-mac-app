@@ -104,7 +104,6 @@ export const en = {
   toolbar_person: "{count} person",
   toolbar_selected: "{count} selected",
   toolbar_new_scan: "New Scan",
-  toolbar_regroup: "Regroup Faces",
   toolbar_filter_rating: "Rating",
   toolbar_filter_status: "Status",
   toolbar_filter_label: "Label",

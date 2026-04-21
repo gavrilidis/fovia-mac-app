@@ -89,6 +89,15 @@ pub fn cluster_faces(embeddings: Vec<Vec<f32>>, threshold: f32) -> Vec<Vec<usize
     if embeddings.is_empty() {
         return Vec::new();
     }
+    // Diagnostic trace: lets us see (in `npm run tauri dev` console) how
+    // many faces went in, what threshold was used, and how many clusters
+    // each pass produced. Crucial for debugging "why N persons instead
+    // of M" complaints.
+    let total_faces = embeddings.len();
+    eprintln!(
+        "[clustering] start: {} faces, threshold={:.3}",
+        total_faces, threshold
+    );
     let mut clusters: Vec<Option<Cluster>> = embeddings
         .iter()
         .enumerate()
@@ -140,11 +149,24 @@ pub fn cluster_faces(embeddings: Vec<Vec<f32>>, threshold: f32) -> Vec<Vec<usize
         clusters[j] = None;
     }
 
+    let after_hac = clusters.iter().filter(|c| c.is_some()).count();
+    eprintln!("[clustering] after HAC: {} clusters", after_hac);
+
     // ---- Second pass: rescue singletons by attaching them to the nearest
     // multi-member cluster if similarity is above a looser threshold.
     // Multi-member centroids are statistically more reliable, so this catches
     // single-shot odd-angle / odd-lighting faces that HAC failed to merge.
-    let rescue_threshold = (threshold - 0.06_f32).max(0.20_f32);
+    //
+    // CAVEAT: relaxing the threshold by 0.06 made sense for the legacy 0.32
+    // default, but it silently over-merged distinct people once the user
+    // started picking strict values like 0.78 (typical symptom: 8 persons
+    // found where there should be 14). When the user explicitly chooses a
+    // strict threshold (>= 0.6), the rescue pass must not loosen it.
+    let rescue_threshold = if threshold >= 0.6 {
+        threshold
+    } else {
+        (threshold - 0.06_f32).max(0.20_f32)
+    };
     let mut active: Vec<usize> = (0..clusters.len())
         .filter(|i| clusters[*i].is_some())
         .collect();
@@ -194,6 +216,22 @@ pub fn cluster_faces(embeddings: Vec<Vec<f32>>, threshold: f32) -> Vec<Vec<usize
     // ---- Third pass: merge small clusters whose centroids are still
     // close (looser than HAC threshold) — addresses the case where the
     // same person is split into 2-3 sub-clusters by HAC's strict cutoff.
+    //
+    // Same caveat as the rescue pass: when the user picks a strict
+    // threshold (>= 0.6) we must not loosen it. Skipping the third pass
+    // entirely for strict thresholds is the only way to honour the
+    // user's intent ("keep these distinct people apart").
+    if threshold >= 0.6 {
+        let mut out = Vec::new();
+        for cluster in clusters.into_iter().flatten() {
+            out.push(cluster.indices);
+        }
+        eprintln!(
+            "[clustering] strict threshold {:.3}: skipping small-merge pass, {} final clusters (rescue_threshold={:.3})",
+            threshold, out.len(), rescue_threshold
+        );
+        return out;
+    }
     let small_merge_threshold = (threshold - 0.05_f32).max(0.20_f32);
     loop {
         active = (0..clusters.len())
@@ -238,6 +276,11 @@ pub fn cluster_faces(embeddings: Vec<Vec<f32>>, threshold: f32) -> Vec<Vec<usize
     for cluster in clusters.into_iter().flatten() {
         out.push(cluster.indices);
     }
+    eprintln!(
+        "[clustering] loose threshold {:.3}: {} final clusters",
+        threshold,
+        out.len()
+    );
     out
 }
 
