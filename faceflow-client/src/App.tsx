@@ -123,8 +123,8 @@ function App() {
   const [isResumeScan, setIsResumeScan] = useState(false);
   const [faceMatchThreshold, setFaceMatchThreshold] = useState<number>(() => {
     const value = localStorage.getItem("faceflow-face-threshold");
-    const parsed = value ? Number(value) : 0.32;
-    return Number.isFinite(parsed) ? parsed : 0.32;
+    const parsed = value ? Number(value) : 0.78;
+    return Number.isFinite(parsed) ? parsed : 0.78;
   });
 
   const handleRetryModels = useCallback(async () => {
@@ -253,7 +253,13 @@ function App() {
   );
 
   const handleFolderSelected = useCallback(
-    async (folderPath: string, detectionThreshold: number) => {
+    async (folderPath: string, detectionThreshold: number, clusterSimilarity?: number) => {
+      // The DropZone slider is the source of truth for the next scan, so
+      // adopt its clustering value before any prompt or scan kick-off.
+      if (typeof clusterSimilarity === "number" && Number.isFinite(clusterSimilarity)) {
+        setFaceMatchThreshold(clusterSimilarity);
+        localStorage.setItem("faceflow-face-threshold", clusterSimilarity.toFixed(2));
+      }
       try {
         const prior = await invoke<ScanProgressRow | null>("get_scan_progress", {
           folderPath,
@@ -509,7 +515,7 @@ function App() {
       if (event.payload.type === "drop" && view === "dropzone") {
         const paths = event.payload.paths;
         if (paths && paths.length > 0) {
-          handleFolderSelected(paths[0], 0.5);
+          handleFolderSelected(paths[0], 0.4);
         }
       }
     });

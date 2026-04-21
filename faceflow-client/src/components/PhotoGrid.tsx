@@ -1,5 +1,4 @@
 import React, { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
-import { invoke } from "@tauri-apps/api/core";
 import { useVirtualizer } from "@tanstack/react-virtual";
 import type { FaceEntry, PhotoMeta } from "../types";
 import { COLOR_LABEL_MAP } from "../types";
@@ -20,27 +19,7 @@ interface PhotoGridProps {
   aiTags?: Map<string, string[]>;
 }
 
-const PREVIEW_CACHE_LIMIT = 500;
 const OVERSCAN_PIXELS = 200;
-const previewCache = new Map<string, string>();
-
-function getCached(path: string): string | null {
-  const value = previewCache.get(path);
-  if (!value) return null;
-  previewCache.delete(path);
-  previewCache.set(path, value);
-  return value;
-}
-
-function setCached(path: string, value: string): void {
-  if (previewCache.has(path)) previewCache.delete(path);
-  previewCache.set(path, value);
-  while (previewCache.size > PREVIEW_CACHE_LIMIT) {
-    const first = previewCache.keys().next().value;
-    if (!first) break;
-    previewCache.delete(first);
-  }
-}
 
 const PhotoCard: React.FC<{
   photo: FaceEntry;
@@ -50,31 +29,17 @@ const PhotoCard: React.FC<{
   onOpen: () => void;
   meta?: PhotoMeta;
   tags?: string[];
-}> = React.memo(({ photo, isSelected, showBbox, onToggleSelect, onOpen, meta, tags }) => {
+}> = React.memo(({ photo, isSelected, onToggleSelect, onOpen, meta, tags }) => {
   const { t } = useI18n();
-  const [fullImage, setFullImage] = useState<string | null>(() => getCached(photo.file_path));
-  const [imgSize, setImgSize] = useState<{ w: number; h: number } | null>(null);
 
-  useEffect(() => {
-    if (fullImage) return;
-    let cancelled = false;
-    invoke<string>("read_photo_base64", { filePath: photo.file_path })
-      .then((data) => {
-        if (cancelled) return;
-        setCached(photo.file_path, data);
-        setFullImage(data);
-      })
-      .catch(() => {});
-    return () => {
-      cancelled = true;
-    };
-  }, [photo.file_path, fullImage]);
-
-  const imageSrc = fullImage
-    ? `data:image/jpeg;base64,${fullImage}`
-    : photo.preview_base64
-      ? `data:image/jpeg;base64,${photo.preview_base64}`
-      : null;
+  // Grid never fetches full-resolution images — that would stall the IPC
+  // bridge whenever the user switched to a populous folder. Only the
+  // lightweight face crop (preview_base64, already shipped with the
+  // FaceEntry) is shown here. Full-res decoding happens lazily inside
+  // PhotoViewer on double-click.
+  const imageSrc = photo.preview_base64
+    ? `data:image/jpeg;base64,${photo.preview_base64}`
+    : null;
 
   return (
     <div
@@ -90,32 +55,11 @@ const PhotoCard: React.FC<{
         <img
           src={imageSrc}
           alt={photo.file_path.split("/").pop() || "Photo"}
+          loading="lazy"
+          decoding="async"
           className="h-full w-full object-cover transition-transform duration-300 ease-out group-hover:scale-[1.03]"
-          onLoad={(e) => {
-            const t = e.currentTarget;
-            setImgSize({ w: t.naturalWidth, h: t.naturalHeight });
-          }}
         />
       ) : null}
-
-      {showBbox && imgSize && (photo.bbox_x2 - photo.bbox_x1) > 0 && (
-        <svg
-          className="pointer-events-none absolute inset-0 h-full w-full"
-          viewBox={`0 0 ${imgSize.w} ${imgSize.h}`}
-          preserveAspectRatio="xMidYMid slice"
-        >
-          <rect
-            x={photo.bbox_x1}
-            y={photo.bbox_y1}
-            width={photo.bbox_x2 - photo.bbox_x1}
-            height={photo.bbox_y2 - photo.bbox_y1}
-            fill="none"
-            stroke="#0a84ff"
-            strokeWidth={Math.max(2, imgSize.w / 200)}
-            rx={Math.max(4, imgSize.w / 100)}
-          />
-        </svg>
-      )}
 
       <button
         title={isSelected ? "Deselect photo" : "Select photo"}

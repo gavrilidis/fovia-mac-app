@@ -14,7 +14,9 @@ export const en = {
   drop_release: "Release to start scanning",
   detection_threshold: "Detection Threshold",
   detection_threshold_desc: "Minimum confidence for face detection. Lower = more faces (may include false positives). Higher = fewer, more accurate.",
-  recommended: "Recommended: 0.50",
+  recommended: "Recommended: 0.40",
+  cluster_similarity: "Clustering Similarity",
+  cluster_similarity_desc: "Minimum cosine similarity for two faces to be merged into the same person. Higher = stricter (more groups, less merging across people). Recommended: 0.78.",
   supported_formats: "Supported Formats",
   formats_note: "RAW, HEIC, and AVIF processed via ExifTool. Standard formats decoded natively.",
 

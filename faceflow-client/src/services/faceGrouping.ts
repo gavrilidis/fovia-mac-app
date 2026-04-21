@@ -34,7 +34,7 @@ export interface GroupingResult {
 
 export async function groupFacesByIdentity(
   faces: FaceEntry[],
-  threshold = 0.32,
+  threshold = 0.78,
 ): Promise<GroupingResult> {
   if (faces.length === 0) return { groups: [], lowQualityFaces: [] };
 

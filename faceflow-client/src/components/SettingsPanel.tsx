@@ -46,8 +46,8 @@ export const SettingsPanel: React.FC<SettingsPanelProps> = ({ onClose, variant =
   const [savedApiKey, setSavedApiKey] = useState("");
   const [draftFaceSensitivity, setDraftFaceSensitivity] = useState(() => {
     const raw = localStorage.getItem("faceflow-face-threshold");
-    const parsed = raw ? Number(raw) : 0.38;
-    return Number.isFinite(parsed) ? parsed : 0.38;
+    const parsed = raw ? Number(raw) : 0.78;
+    return Number.isFinite(parsed) ? parsed : 0.78;
   });
   const [status, setStatus] = useState<{ kind: "success" | "error"; message: string } | null>(null);
   const [testingConnection, setTestingConnection] = useState(false);
@@ -82,10 +82,10 @@ export const SettingsPanel: React.FC<SettingsPanelProps> = ({ onClose, variant =
     draftProvider !== getAiProvider() ||
     draftModel !== getAiModel(draftProvider) ||
     draftApiKey !== savedApiKey ||
-    Number(localStorage.getItem("faceflow-face-threshold") ?? "0.38") !== draftFaceSensitivity;
+    Number(localStorage.getItem("faceflow-face-threshold") ?? "0.78") !== draftFaceSensitivity;
 
   const handleApply = async () => {
-    const oldFaceThreshold = Number(localStorage.getItem("faceflow-face-threshold") ?? "0.38");
+    const oldFaceThreshold = Number(localStorage.getItem("faceflow-face-threshold") ?? "0.78");
     setTheme(draftTheme);
     setLocale(draftLocale);
     saveAiProvider(draftProvider);
