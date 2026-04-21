@@ -366,6 +366,35 @@ function App() {
     return () => window.removeEventListener("faceflow:reset-scan", handler);
   }, []);
 
+  // Force a full re-cluster of every stored face in the active folder
+  // using the current similarity threshold. Triggered by the Regroup
+  // Faces button in the Toolbar. Heavy work runs in Rust so the UI thread
+  // stays responsive even for datasets with tens of thousands of faces.
+  useEffect(() => {
+    const handler = async () => {
+      const folderPath = localStorage.getItem("faceflow-last-folder");
+      if (!folderPath) {
+        window.dispatchEvent(new Event("faceflow:regroup-done"));
+        return;
+      }
+      try {
+        const result = await invoke<{
+          groups: FaceGroup[];
+          low_quality_faces: FaceEntry[];
+        }>("force_regroup_faces", { folderPath, threshold: faceMatchThreshold });
+        setFaceGroups(result.groups);
+        setLowQualityFaces(result.low_quality_faces);
+      } catch (err) {
+        console.warn("Force regroup failed:", err);
+        setError(String(err));
+      } finally {
+        window.dispatchEvent(new Event("faceflow:regroup-done"));
+      }
+    };
+    window.addEventListener("faceflow:regroup", handler);
+    return () => window.removeEventListener("faceflow:regroup", handler);
+  }, [faceMatchThreshold]);
+
   // Bridge native macOS menu events into DOM CustomEvents so any nested
   // component (GalleryView, SettingsPanel, etc.) can subscribe without
   // having to talk to Tauri directly. The native menu emits ids like

@@ -862,6 +862,115 @@ pub fn load_saved_faces(app: AppHandle, folder_path: String) -> Result<ScanResul
     })
 }
 
+/// Result of a forced regroup: fully-rebuilt person groups plus the faces
+/// that were filtered out as low quality. Shape mirrors the frontend
+/// `GroupingResult` so `App.tsx` can swap it in directly.
+#[derive(Debug, Serialize, Deserialize, Clone)]
+pub struct RegroupResult {
+    pub groups: Vec<RegroupGroup>,
+    pub low_quality_faces: Vec<FaceEntry>,
+}
+
+#[derive(Debug, Serialize, Deserialize, Clone)]
+pub struct RegroupGroup {
+    pub id: String,
+    pub representative: FaceEntry,
+    pub members: Vec<FaceEntry>,
+}
+
+/// Discard any stale in-memory grouping and recompute person clusters from
+/// scratch using the supplied similarity threshold. All persisted face
+/// records are kept; only the group assignments are regenerated. Used by
+/// the "Regroup Faces" UI action after the user bumps the threshold.
+#[tauri::command]
+pub fn force_regroup_faces(
+    app: AppHandle,
+    folder_path: String,
+    threshold: Option<f32>,
+) -> Result<RegroupResult, String> {
+    let conn = get_db_connection(&app)?;
+    let rows = database::load_faces_for_folder(&conn, &folder_path)?;
+
+    // Split faces into "good" and "low quality" using the same rule as
+    // faceGrouping.ts::isLowQuality. Low-quality faces must not seed
+    // clustering or they pollute otherwise-clean person groups.
+    let mut good_rows: Vec<database::FaceRow> = Vec::with_capacity(rows.len());
+    let mut low_rows: Vec<database::FaceRow> = Vec::new();
+    for row in rows {
+        if clustering::is_low_quality_f64(&row.bbox, row.detection_score) {
+            low_rows.push(row);
+        } else {
+            good_rows.push(row);
+        }
+    }
+
+    let face_entry_from_row = |r: database::FaceRow| -> FaceEntry {
+        let embedding_json =
+            serde_json::to_string(&r.embedding.iter().map(|v| *v as f64).collect::<Vec<_>>())
+                .unwrap_or_default();
+        let preview_base64 = r
+            .preview_jpeg
+            .as_deref()
+            .map(|bytes| BASE64.encode(bytes))
+            .unwrap_or_default();
+        FaceEntry {
+            face_id: r.face_id,
+            file_path: r.file_path,
+            bbox_x1: r.bbox[0],
+            bbox_y1: r.bbox[1],
+            bbox_x2: r.bbox[2],
+            bbox_y2: r.bbox[3],
+            embedding: embedding_json,
+            detection_score: r.detection_score,
+            preview_base64,
+        }
+    };
+
+    let low_quality_faces: Vec<FaceEntry> = low_rows.into_iter().map(face_entry_from_row).collect();
+
+    if good_rows.is_empty() {
+        return Ok(RegroupResult {
+            groups: Vec::new(),
+            low_quality_faces,
+        });
+    }
+
+    let embeddings: Vec<Vec<f32>> = good_rows.iter().map(|r| r.embedding.clone()).collect();
+    let good_faces: Vec<FaceEntry> = good_rows.into_iter().map(face_entry_from_row).collect();
+
+    let cluster_threshold = threshold.unwrap_or(0.78);
+    let clusters = clustering::cluster_faces(embeddings, cluster_threshold);
+
+    let mut groups: Vec<RegroupGroup> = clusters
+        .into_iter()
+        .filter_map(|indices| {
+            if indices.is_empty() {
+                return None;
+            }
+            let members: Vec<FaceEntry> = indices
+                .into_iter()
+                .filter_map(|i| good_faces.get(i).cloned())
+                .collect();
+            if members.is_empty() {
+                return None;
+            }
+            let representative = members[0].clone();
+            Some(RegroupGroup {
+                id: representative.face_id.clone(),
+                representative,
+                members,
+            })
+        })
+        .collect();
+
+    groups.sort_by(|a, b| b.members.len().cmp(&a.members.len()));
+
+    Ok(RegroupResult {
+        groups,
+        low_quality_faces,
+    })
+}
+
 fn emit_progress(app: &AppHandle, progress: &ScanProgress) {
     let _ = app.emit("scan-progress", progress.clone());
 }

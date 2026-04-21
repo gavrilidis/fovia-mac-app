@@ -73,6 +73,7 @@ pub fn run() {
             commands::scan::download_exiftool,
             commands::scan::load_models,
             commands::scan::load_saved_faces,
+            commands::scan::force_regroup_faces,
             commands::scan::read_photo_base64,
             commands::scan::set_photo_rating,
             commands::scan::set_photo_color_label,

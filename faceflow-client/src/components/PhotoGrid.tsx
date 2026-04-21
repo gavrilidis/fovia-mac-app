@@ -1,4 +1,5 @@
 import React, { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
+import { invoke } from "@tauri-apps/api/core";
 import { useVirtualizer } from "@tanstack/react-virtual";
 import type { FaceEntry, PhotoMeta } from "../types";
 import { COLOR_LABEL_MAP } from "../types";
@@ -21,6 +22,50 @@ interface PhotoGridProps {
 
 const OVERSCAN_PIXELS = 200;
 
+// LRU cache of decoded full-resolution JPEG previews keyed by file_path.
+// Prevents re-fetching the same image across scroll and re-renders.
+const FULL_CACHE_LIMIT = 400;
+const fullImageCache = new Map<string, string>();
+
+function cacheGet(path: string): string | null {
+  const v = fullImageCache.get(path);
+  if (!v) return null;
+  fullImageCache.delete(path);
+  fullImageCache.set(path, v);
+  return v;
+}
+
+function cacheSet(path: string, value: string): void {
+  if (fullImageCache.has(path)) fullImageCache.delete(path);
+  fullImageCache.set(path, value);
+  while (fullImageCache.size > FULL_CACHE_LIMIT) {
+    const first = fullImageCache.keys().next().value;
+    if (!first) break;
+    fullImageCache.delete(first);
+  }
+}
+
+// Shared IntersectionObserver — each PhotoCard registers its root element
+// and gets notified when it enters the viewport. A single observer across
+// the grid is dramatically cheaper than one per card.
+type Listener = (visible: boolean) => void;
+const cardListeners = new WeakMap<Element, Listener>();
+let sharedObserver: IntersectionObserver | null = null;
+
+function getSharedObserver(): IntersectionObserver {
+  if (sharedObserver) return sharedObserver;
+  sharedObserver = new IntersectionObserver(
+    (entries) => {
+      for (const entry of entries) {
+        const listener = cardListeners.get(entry.target);
+        if (listener) listener(entry.isIntersecting);
+      }
+    },
+    { rootMargin: "400px 0px", threshold: 0.01 },
+  );
+  return sharedObserver;
+}
+
 const PhotoCard: React.FC<{
   photo: FaceEntry;
   isSelected: boolean;
@@ -29,20 +74,66 @@ const PhotoCard: React.FC<{
   onOpen: () => void;
   meta?: PhotoMeta;
   tags?: string[];
-}> = React.memo(({ photo, isSelected, onToggleSelect, onOpen, meta, tags }) => {
+}> = React.memo(({ photo, isSelected, showBbox, onToggleSelect, onOpen, meta, tags }) => {
   const { t } = useI18n();
+  const rootRef = useRef<HTMLDivElement | null>(null);
+  const [fullImage, setFullImage] = useState<string | null>(() => cacheGet(photo.file_path));
+  const [imgSize, setImgSize] = useState<{ w: number; h: number } | null>(null);
 
-  // Grid never fetches full-resolution images — that would stall the IPC
-  // bridge whenever the user switched to a populous folder. Only the
-  // lightweight face crop (preview_base64, already shipped with the
-  // FaceEntry) is shown here. Full-res decoding happens lazily inside
-  // PhotoViewer on double-click.
-  const imageSrc = photo.preview_base64
-    ? `data:image/jpeg;base64,${photo.preview_base64}`
-    : null;
+  // Lazy-load the full-resolution JPEG preview only when this card scrolls
+  // into (or near) the viewport. A shared IntersectionObserver means we
+  // never schedule more than one in-flight `read_photo_base64` per card,
+  // so switching between populous folders no longer saturates the Tauri
+  // IPC bridge.
+  useEffect(() => {
+    if (fullImage) return;
+    const node = rootRef.current;
+    if (!node) return;
+
+    let cancelled = false;
+    let fetched = false;
+
+    const listener: Listener = (visible) => {
+      if (!visible || fetched || cancelled) return;
+      fetched = true;
+      invoke<string>("read_photo_base64", { filePath: photo.file_path })
+        .then((data) => {
+          if (cancelled) return;
+          cacheSet(photo.file_path, data);
+          setFullImage(data);
+        })
+        .catch(() => {
+          // Fall back silently to the face crop — rendering still works.
+          fetched = false;
+        });
+    };
+
+    cardListeners.set(node, listener);
+    const observer = getSharedObserver();
+    observer.observe(node);
+
+    return () => {
+      cancelled = true;
+      cardListeners.delete(node);
+      observer.unobserve(node);
+    };
+  }, [photo.file_path, fullImage]);
+
+  // Use the full photo once decoded; fall back to the face crop that is
+  // already shipped with every FaceEntry so the tile is never blank.
+  const imageSrc = fullImage
+    ? `data:image/jpeg;base64,${fullImage}`
+    : photo.preview_base64
+      ? `data:image/jpeg;base64,${photo.preview_base64}`
+      : null;
+
+  const bboxW = photo.bbox_x2 - photo.bbox_x1;
+  const bboxH = photo.bbox_y2 - photo.bbox_y1;
+  const hasBbox = showBbox && fullImage != null && imgSize != null && bboxW > 0 && bboxH > 0;
 
   return (
     <div
+      ref={rootRef}
       className={`group relative aspect-square cursor-pointer overflow-hidden rounded-md bg-surface-elevated ring-1 transition-all duration-200 ${
         isSelected
           ? "ring-2 ring-accent ring-offset-2 ring-offset-surface"
@@ -58,8 +149,31 @@ const PhotoCard: React.FC<{
           loading="lazy"
           decoding="async"
           className="h-full w-full object-cover transition-transform duration-300 ease-out group-hover:scale-[1.03]"
+          onLoad={(e) => {
+            const target = e.currentTarget;
+            setImgSize({ w: target.naturalWidth, h: target.naturalHeight });
+          }}
         />
       ) : null}
+
+      {hasBbox && imgSize && (
+        <svg
+          className="pointer-events-none absolute inset-0 h-full w-full"
+          viewBox={`0 0 ${imgSize.w} ${imgSize.h}`}
+          preserveAspectRatio="xMidYMid slice"
+        >
+          <rect
+            x={photo.bbox_x1}
+            y={photo.bbox_y1}
+            width={bboxW}
+            height={bboxH}
+            fill="none"
+            stroke="#0a84ff"
+            strokeWidth={Math.max(2, imgSize.w / 200)}
+            rx={Math.max(4, imgSize.w / 100)}
+          />
+        </svg>
+      )}
 
       <button
         title={isSelected ? "Deselect photo" : "Select photo"}

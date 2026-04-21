@@ -37,6 +37,11 @@ export const GalleryView: React.FC<GalleryViewProps> = ({ groups, noFaceFiles, l
 
   // Mutable groups — allow moving photos between persons
   const [mutableGroups, setMutableGroups] = React.useState<FaceGroup[]>(groups);
+  // Keep local groups in sync when the parent swaps them (e.g. after a
+  // force_regroup_faces call).
+  React.useEffect(() => {
+    setMutableGroups(groups);
+  }, [groups]);
   const [groupNames, setGroupNames] = React.useState<Map<string, string>>(new Map());
 
   const [activeGroupId, setActiveGroupId] = React.useState<string | null>(
@@ -60,8 +65,7 @@ export const GalleryView: React.FC<GalleryViewProps> = ({ groups, noFaceFiles, l
   // Search & AI
   const [searchQuery, setSearchQuery] = React.useState("");
   const [aiAnalyzing, setAiAnalyzing] = React.useState(false);
-  const [aiConfigured, setAiConfigured] = React.useState(false);
-  const [aiStatus, setAiStatus] = React.useState<string | null>(null);
+  const [aiConfigured, setAiConfigured] = React.useState(false);  const [aiStatus, setAiStatus] = React.useState<string | null>(null);
   const [aiDialogOpen, setAiDialogOpen] = React.useState(false);
   const [aiPickerOpen, setAiPickerOpen] = React.useState(false);
   const [aiDialogItems, setAiDialogItems] = React.useState<
@@ -69,6 +73,16 @@ export const GalleryView: React.FC<GalleryViewProps> = ({ groups, noFaceFiles, l
   >([]);
   const [mergeSuggestions, setMergeSuggestions] = React.useState<MergeSuggestion[]>([]);
   const [mergeDialogOpen, setMergeDialogOpen] = React.useState(false);
+  // Regroup Faces: forces clustering to be rebuilt from scratch using the
+  // current similarity threshold on every stored face of the active
+  // folder. Dispatches `faceflow:regroup` so App.tsx (which owns the
+  // top-level `faceGroups` / `lowQualityFaces` state) can refresh them.
+  const [regrouping, setRegrouping] = React.useState(false);
+  React.useEffect(() => {
+    const handler = () => setRegrouping(false);
+    window.addEventListener("faceflow:regroup-done", handler);
+    return () => window.removeEventListener("faceflow:regroup-done", handler);
+  }, []);
   const aiCancelRef = React.useRef(false);
   const [aiTags, setAiTags] = React.useState<Map<string, string[]>>(() => {
     // Restore cached AI tags from localStorage
@@ -924,6 +938,15 @@ export const GalleryView: React.FC<GalleryViewProps> = ({ groups, noFaceFiles, l
         onAiAnalyze={handleAiAnalyze}
         aiAnalyzing={aiAnalyzing}
         aiConfigured={aiConfigured}
+        onRegroup={() => {
+          if (regrouping) return;
+          setRegrouping(true);
+          // Fire-and-forget \u2014 App.tsx owns the top-level groups state and
+          // reacts to this event, then clears `regrouping` via a follow-up
+          // `faceflow:regroup-done` ping.
+          window.dispatchEvent(new Event("faceflow:regroup"));
+        }}
+        regrouping={regrouping}
       />
 
       {/* Content area */}

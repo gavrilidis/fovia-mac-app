@@ -105,6 +105,7 @@ export const ru: Record<TranslationKey, string> = {
   toolbar_people: "{count} человек",
   toolbar_person: "{count} человек",
   toolbar_selected: "{count} выбрано",
+  toolbar_regroup: "Пересобрать группы",
   toolbar_new_scan: "Новый скан",
   toolbar_filter_rating: "Рейтинг",
   toolbar_filter_status: "Статус",
