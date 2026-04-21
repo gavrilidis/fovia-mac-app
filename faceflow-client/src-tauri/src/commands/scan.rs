@@ -12,8 +12,8 @@ use sysinfo::Disks;
 use tauri::{AppHandle, Emitter, Manager};
 
 use crate::services::{
-    activation, clustering::OnlineClusterer, database, extractor, inference, inference::FaceModels,
-    scanner, xmp,
+    activation, clustering, clustering::OnlineClusterer, database, extractor, inference,
+    inference::FaceModels, scanner, xmp,
 };
 
 /// Maximum retries for transient inference failures.
@@ -1020,14 +1020,26 @@ pub async fn scan_folder(
     // the UI. Threshold is intentionally a touch looser than the final HAC
     // pass (0.30 vs 0.32) so it converges from above as more faces arrive.
     let mut online_persons = OnlineClusterer::new(0.30);
+    // Quality-filtered face count that mirrors the front-end
+    // `faceGrouping.ts::isLowQuality` filter. Used as `faces_found` in the
+    // emitted progress so the live counters (faces ↔ persons) stay in
+    // lock-step with the final gallery numbers.
+    let mut quality_faces_count: usize = 0;
     // Pre-seed the online clusterer with embeddings already cached for
     // this folder so the live counter is accurate from the very first
     // emitted progress event—otherwise resume scans would start from 0.
+    // Only good-quality faces participate so the seeded count matches the
+    // final gallery (low-quality faces are bucketed into "Low Quality" and
+    // never become person clusters).
     {
         let conn = get_db_connection(&app)?;
         if let Ok(rows) = database::load_faces_for_folder(&conn, &folder_path) {
             for r in &rows {
+                if clustering::is_low_quality_f64(&r.bbox, r.detection_score) {
+                    continue;
+                }
                 online_persons.add(&r.embedding);
+                quality_faces_count += 1;
             }
         }
     }
@@ -1105,7 +1117,7 @@ pub async fn scan_folder(
                 total_files: new_file_count,
                 processed,
                 current_file: filename.clone(),
-                faces_found: all_faces.len(),
+                faces_found: quality_faces_count,
                 unique_persons: online_persons.len(),
                 errors: error_count,
                 last_error: last_error.clone(),
@@ -1139,7 +1151,7 @@ pub async fn scan_folder(
                 total_files: new_file_count,
                 processed,
                 current_file: filename.clone(),
-                faces_found: all_faces.len(),
+                faces_found: quality_faces_count,
                 unique_persons: online_persons.len(),
                 errors: error_count,
                 last_error: last_error.clone(),
@@ -1239,9 +1251,16 @@ pub async fn scan_folder(
                 detection_score: face.score as f64,
                 preview_base64,
             });
-            // Feed the live persons-count estimator. Done after the face is
-            // pushed so the counter and `faces_found` stay in lock-step.
-            online_persons.add(&face.embedding);
+            // Feed the live persons-count estimator only with faces that
+            // would survive the post-scan quality filter. Without this gate
+            // the live counter inflates dramatically (small / blurry / low-
+            // confidence detections each become singleton clusters) and
+            // confuses users when the final gallery shows a much smaller
+            // number. Mirrors `faceGrouping.ts::isLowQuality`.
+            if !clustering::is_low_quality(&face.bbox, face.score) {
+                online_persons.add(&face.embedding);
+                quality_faces_count += 1;
+            }
         }
 
         // Mark file as scanned

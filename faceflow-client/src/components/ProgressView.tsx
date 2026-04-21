@@ -30,7 +30,6 @@ export const ProgressView: React.FC<ProgressViewProps> = ({ progress, isResume }
   const { t } = useI18n();
   const [stopRequested, setStopRequested] = useState(false);
   const isDetecting = progress.phase === "detecting";
-  const isCompressing = progress.phase === "compressing";
 
   const handleStop = useCallback(async () => {
     if (stopRequested) return;
@@ -46,42 +45,54 @@ export const ProgressView: React.FC<ProgressViewProps> = ({ progress, isResume }
   }, [stopRequested]);
 
   // ── Unified progress model ────────────────────────────────────────────
-  // The scan goes through TWO sequential stages:
-  //   1. Preparing previews   (extract JPEG / resize)  → tracks `files_read`
-  //   2. Detecting faces      (InsightFace inference)  → tracks `processed`
-  //
-  // Previously each stage drove its OWN 0–100 % bar, so when stage 2 began
-  // the bar JUMPED back from "high files_read" to "low processed". Now we
-  // map each stage to half of the total bar so the bar only ever moves
-  // forward and never resets.
+  // The user-visible bar reflects ONLY the *overall* completion of the
+  // scan: a file counts as "done" once face detection has finished for it
+  // (i.e. `processed`). The per-file substage (extracting RAW preview /
+  // resizing JPG / detecting faces) is shown as a separate indicator
+  // below the bar — it is informational and does not contribute to the
+  // overall percentage. This matches user expectation that the big bar
+  // should monotonically advance from 0 % to 100 % over the whole scan,
+  // never resetting halfway when a new sub-stage begins.
   const total = Math.max(1, progress.total_files);
-  const prepFraction = Math.min(1, progress.files_read / total);
-  const detectFraction = Math.min(1, progress.processed / total);
-  // When detection has started we assume preparation is complete (true for
-  // the current pipeline — preparation always finishes before detection
-  // begins for any given file batch).
-  const stage1Done = isDetecting ? 1 : prepFraction;
-  const stage2Done = isDetecting ? detectFraction : 0;
-  const percentage = Math.round((stage1Done * 50 + stage2Done * 50));
-  const stepIndex = isDetecting ? 2 : 1;
+  const overallFraction = Math.min(1, progress.processed / total);
+  const percentage = Math.round(overallFraction * 100);
+
+  // Substage label for the *current file*. Three possibilities:
+  //   1. RAW preview extraction (file is RAW → we shell out to exiftool)
+  //   2. JPG resize / decode    (file is JPG/PNG/HEIC → native decode)
+  //   3. Face detection         (image bytes ready, ONNX is running)
+  type Substage = "raw" | "resize" | "detect";
+  const currentFileName = basename(progress.current_file ?? "");
+  const substage: Substage = isDetecting
+    ? "detect"
+    : isRaw(currentFileName)
+      ? "raw"
+      : "resize";
 
   // ── Stage labels ──────────────────────────────────────────────────────
-  const phaseTitle = isDetecting
-    ? t("progress_stage_detect_title")
-    : isCompressing
-      ? t("progress_stage_compress_title")
-      : t("progress_stage_preview_title");
+  // Top-level title is now ALWAYS "Scanning" — the substage chip below
+  // tells the user what is happening to the current file. This prevents
+  // the heading from flapping rapidly between three states for every
+  // file and keeps the UI calm.
+  const phaseTitle = t("progress_overall_title");
+  const phaseDesc = t("progress_overall_desc");
 
-  const phaseDesc = isDetecting
-    ? t("progress_stage_detect_desc")
-    : isCompressing
-      ? t("progress_stage_compress_desc")
-      : t("progress_stage_preview_desc");
+  const substageTitle =
+    substage === "detect"
+      ? t("progress_substage_detect_title")
+      : substage === "raw"
+        ? t("progress_substage_raw_title")
+        : t("progress_substage_resize_title");
+  const substageDesc =
+    substage === "detect"
+      ? t("progress_substage_detect_desc")
+      : substage === "raw"
+        ? t("progress_substage_raw_desc")
+        : t("progress_substage_resize_desc");
 
   // Per-file action text — describes what's happening to THIS specific file
   // right now. Replaces the noisy "Resizing image N of M" line that flipped
   // back and forth and contributed to the perceived "jumpiness".
-  const currentFileName = basename(progress.current_file ?? "");
   const currentAction = currentFileName
     ? isDetecting
       ? t("progress_current_action_detect", { name: currentFileName })
@@ -104,39 +115,20 @@ export const ProgressView: React.FC<ProgressViewProps> = ({ progress, isResume }
         {/* Phase indicator + percentage */}
         <div className="mb-14 flex items-center justify-between gap-10">
           <div className="flex items-start gap-5">
-            {/* Phase icon */}
+            {/* Top-level scan icon — always the same magnifier so the
+                heading does not flap between three icons every file. The
+                animated substage indicator below carries the per-file
+                state. */}
             <div className="relative mt-0.5 flex h-11 w-11 flex-shrink-0 items-center justify-center">
-              {isDetecting ? (
-                <>
-                  <div className="absolute inset-0 animate-ping rounded-full bg-accent/20" />
-                  <div className="flex h-11 w-11 items-center justify-center rounded-full bg-accent/15">
-                    <svg className="relative h-5 w-5 text-accent" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
-                      <path strokeLinecap="round" strokeLinejoin="round" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" />
-                      <path strokeLinecap="round" strokeLinejoin="round" d="M2.458 12C3.732 7.943 7.523 5 12 5c4.478 0 8.268 2.943 9.542 7-1.274 4.057-5.064 7-9.542 7-4.477 0-8.268-2.943-9.542-7z" />
-                    </svg>
-                  </div>
-                </>
-              ) : isCompressing ? (
-                <div className="flex h-11 w-11 items-center justify-center rounded-xl bg-accent/10">
-                  <svg className="h-5 w-5 animate-pulse text-accent" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
-                    <path strokeLinecap="round" strokeLinejoin="round" d="M9 9V4.5M9 9H4.5M9 9L3.75 3.75M9 15v4.5M9 15H4.5M9 15l-5.25 5.25M15 9h4.5M15 9V4.5M15 9l5.25-5.25M15 15h4.5M15 15v4.5m0-4.5l5.25 5.25" />
-                  </svg>
-                </div>
-              ) : (
-                <div className="flex h-11 w-11 items-center justify-center rounded-xl bg-surface-elevated">
-                  <svg className="h-5 w-5 text-fg-muted" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
-                    <path strokeLinecap="round" strokeLinejoin="round" d="M21 21l-5.197-5.197m0 0A7.5 7.5 0 105.196 5.196a7.5 7.5 0 0010.607 10.607z" />
-                  </svg>
-                </div>
-              )}
+              <div className="absolute inset-0 animate-ping rounded-full bg-accent/15" />
+              <div className="relative flex h-11 w-11 items-center justify-center rounded-full bg-accent/15">
+                <svg className="h-5 w-5 text-accent" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                  <path strokeLinecap="round" strokeLinejoin="round" d="M21 21l-5.197-5.197m0 0A7.5 7.5 0 105.196 5.196a7.5 7.5 0 0010.607 10.607z" />
+                </svg>
+              </div>
             </div>
             <div className="pt-0.5">
-              <div className="flex items-center gap-2">
-                <h2 className="text-[17px] font-semibold text-fg">{phaseTitle}</h2>
-                <span className="rounded-full border border-edge px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wider text-fg-muted">
-                  {t("progress_step_label", { current: String(stepIndex), total: "2" })}
-                </span>
-              </div>
+              <h2 className="text-[17px] font-semibold text-fg">{phaseTitle}</h2>
               <p className="mt-1.5 text-[13px] leading-relaxed text-fg-muted">
                 {phaseDesc}
               </p>
@@ -212,36 +204,57 @@ export const ProgressView: React.FC<ProgressViewProps> = ({ progress, isResume }
           </div>
         )}
 
-        {/* Two-segment progress bar.
-            Stage 1 (preparing previews) fills the left half (0–50 %).
-            Stage 2 (detecting faces)    fills the right half (50–100 %).
-            A thin tick at 50 % marks the boundary between stages. */}
-        <div className="mb-3 h-4 w-full overflow-hidden rounded-full bg-surface-elevated">
-          <div className="flex h-full w-full">
-            <div className="relative h-full w-1/2 overflow-hidden">
-              <div
-                className="h-full bg-gradient-to-r from-accent/70 to-accent transition-[width] duration-500 ease-out"
-                style={{ width: `${stage1Done * 100}%` }}
-              />
-            </div>
-            <div className="h-full w-px bg-surface-alt/60" />
-            <div className="relative h-full w-1/2 overflow-hidden">
-              <div
-                className="h-full bg-gradient-to-r from-accent to-positive transition-[width] duration-500 ease-out"
-                style={{ width: `${stage2Done * 100}%` }}
-              />
-            </div>
-          </div>
+        {/* Single, monotonic OVERALL progress bar.
+            Reflects fully-completed files (`processed / total_files`).
+            The three per-file substages (RAW preview extraction / JPG
+            resize / face detection) are surfaced separately in the
+            "Current step" panel below so the bar itself never resets
+            or jumps backwards mid-scan. */}
+        <div className="mb-2 h-4 w-full overflow-hidden rounded-full bg-surface-elevated">
+          <div
+            className="h-full bg-gradient-to-r from-accent to-positive transition-[width] duration-500 ease-out"
+            style={{ width: `${overallFraction * 100}%` }}
+          />
         </div>
-        {/* Stage legend below the bar — makes it obvious which half the
-            bar is currently filling and what comes next. */}
-        <div className="mb-12 flex justify-between text-[10px] font-medium uppercase tracking-wider">
-          <span className={stepIndex === 1 ? "text-accent" : "text-fg-muted"}>
-            1. {t("progress_stage_preview_title")}
+        <div className="mb-8 flex items-center justify-between text-[11px] tabular-nums text-fg-muted">
+          <span>
+            {progress.processed} / {progress.total_files} {t("progress_card_faces_inline_files")}
           </span>
-          <span className={stepIndex === 2 ? "text-accent" : "text-fg-muted"}>
-            2. {t("progress_stage_detect_title")}
-          </span>
+        </div>
+
+        {/* Per-file substage panel — shows what is happening to the
+            CURRENT file right now (RAW preview extraction, JPG resize, or
+            face detection). Distinct from the overall bar above so the
+            user can see fine-grained activity without the main bar
+            twitching. */}
+        <div className="mb-12 flex items-center gap-4 rounded-2xl border border-edge bg-surface-elevated/40 px-5 py-4">
+          <div className="flex h-9 w-9 flex-shrink-0 items-center justify-center rounded-lg bg-accent/15">
+            {substage === "detect" ? (
+              <svg className="h-4 w-4 animate-pulse text-accent" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                <path strokeLinecap="round" strokeLinejoin="round" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" />
+                <path strokeLinecap="round" strokeLinejoin="round" d="M2.458 12C3.732 7.943 7.523 5 12 5c4.478 0 8.268 2.943 9.542 7-1.274 4.057-5.064 7-9.542 7-4.477 0-8.268-2.943-9.542-7z" />
+              </svg>
+            ) : substage === "raw" ? (
+              <svg className="h-4 w-4 animate-pulse text-accent" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                <path strokeLinecap="round" strokeLinejoin="round" d="M2.25 15.75l5.159-5.159a2.25 2.25 0 013.182 0l5.159 5.159m-1.5-1.5l1.409-1.409a2.25 2.25 0 013.182 0l2.909 2.909m-18 3.75h16.5a1.5 1.5 0 001.5-1.5V6a1.5 1.5 0 00-1.5-1.5H3.75A1.5 1.5 0 002.25 6v12a1.5 1.5 0 001.5 1.5zm10.5-11.25h.008v.008h-.008V8.25zm.375 0a.375.375 0 11-.75 0 .375.375 0 01.75 0z" />
+              </svg>
+            ) : (
+              <svg className="h-4 w-4 animate-pulse text-accent" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                <path strokeLinecap="round" strokeLinejoin="round" d="M9 9V4.5M9 9H4.5M9 9L3.75 3.75M9 15v4.5M9 15H4.5M9 15l-5.25 5.25M15 9h4.5M15 9V4.5M15 9l5.25-5.25M15 15h4.5M15 15v4.5m0-4.5l5.25 5.25" />
+              </svg>
+            )}
+          </div>
+          <div className="min-w-0 flex-1">
+            <div className="flex items-center gap-2">
+              <span className="text-[12px] font-semibold text-fg">{substageTitle}</span>
+              <span className="rounded-full border border-edge px-1.5 py-px text-[9px] font-semibold uppercase tracking-wider text-fg-muted">
+                {t("progress_substage_label")}
+              </span>
+            </div>
+            <p className="mt-0.5 truncate text-[11px] text-fg-muted" title={substageDesc}>
+              {substageDesc}
+            </p>
+          </div>
         </div>
 
         {/* Stats grid */}

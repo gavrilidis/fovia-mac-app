@@ -18,11 +18,33 @@ FaceFlow — Инструкция по установке для macOS
 
        Решение (выполняется один раз):
 
-         a) Откройте «Системные настройки» → «Конфиденциальность и
-            безопасность».
-         b) Прокрутите вниз. Вы увидите сообщение про FaceFlow и кнопку
+         a) Сначала ОБЯЗАТЕЛЬНО попробуйте запустить FaceFlow двойным
+            кликом и нажмите «Отмена» на предупреждении. Кнопка
+            «Открыть всё равно» в Системных настройках появляется
+            ТОЛЬКО после того, как macOS заблокировала хотя бы один
+            запуск.
+         b) В течение ~30 секунд откройте «Системные настройки» →
+            «Конфиденциальность и безопасность».
+         c) Прокрутите вниз. Вы увидите сообщение про FaceFlow и кнопку
             «Открыть всё равно». Нажмите её.
-         c) Подтвердите паролем администратора.
+         d) Подтвердите паролем администратора или Touch ID.
+         e) Запустите FaceFlow ещё раз — macOS спросит подтверждение
+            последний раз, нажмите «Открыть».
+
+       Если кнопки «Открыть всё равно» нет — повторите шаг (a):
+       macOS показывает её только в течение короткого времени после
+       блокировки
+         b) В течение ~30 секунд откройте «Системные настройки» →
+            «Конфиденциальность и безопасность».
+         c) Прокрутите вниз. Вы увидите сообщение про FaceFlow и кнопку
+            «Открыть всё равно». Нажмите её.
+         d) Подтвердите паролем администратора или Touch ID.
+         e) Запустите FaceFlow ещё раз — macOS спросит подтверждение
+            последний раз, нажмите «Открыть».
+
+       Если кнопки «Открыть всё равно» нет — повторите шаг (a):
+       macOS показывает её только в течение короткого времени после
+       блокировки.
 
        Альтернативно, через Терминал (одна команда):
 
@@ -63,10 +85,20 @@ FaceFlow — Installation Guide for macOS
 
   1.1. Drag the FaceFlow icon into the Applications folder in this DMG.
   1.2. Close the DMG window and eject the disk image.
+First, it is REQUIRED to double-click FaceFlow once and
+            hit Cancel on the warning. The "Open Anyway" button in
+            System Settings only appears AFTER macOS has blocked at
+            least one launch attempt.
+         b) Within ~30 seconds, open System Settings → Privacy &
+            Security.
+         c) Scroll down. You will see a notice about FaceFlow and an
+            "Open Anyway" button. Click it.
+         d) Confirm with your admin password or Touch ID.
+         e) Launch FaceFlow again — macOS will ask one more time;
+            click Open.
 
-2. First launch
-----------------
-
+       If you do not see the "Open Anyway" button, repeat step (a):
+       macOS only shows it for a short window after a blocked launch
   2.1. Open Applications and launch FaceFlow.
   2.2. If macOS shows "Apple could not verify the developer" or
        "the app is damaged" — this is the standard Gatekeeper warning
@@ -74,10 +106,20 @@ FaceFlow — Installation Guide for macOS
 
        One-time fix:
 
-         a) Open System Settings → Privacy & Security.
-         b) Scroll down. You will see a notice about FaceFlow and an
+         a) First, it is REQUIRED to double-click FaceFlow once and
+            hit Cancel on the warning. The "Open Anyway" button in
+            System Settings only appears AFTER macOS has blocked at
+            least one launch attempt.
+         b) Within ~30 seconds, open System Settings → Privacy &
+            Security.
+         c) Scroll down. You will see a notice about FaceFlow and an
             "Open Anyway" button. Click it.
-         c) Confirm with your admin password.
+         d) Confirm with your admin password or Touch ID.
+         e) Launch FaceFlow again — macOS will ask one more time;
+            click Open.
+
+       If you do not see the "Open Anyway" button, repeat step (a):
+       macOS only shows it for a short window after a blocked launch.
 
        Alternative — single command in Terminal:
 

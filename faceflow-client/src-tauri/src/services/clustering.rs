@@ -6,6 +6,47 @@ struct Cluster {
     centroid: Vec<f32>,
 }
 
+// Quality thresholds — must mirror `faceGrouping.ts::isLowQuality` so the
+// live persons/faces counter shown during a scan converges to the same
+// number as the post-scan HAC + quality-filter pipeline. Without this,
+// the scanner would seed the OnlineClusterer with low-confidence /
+// tiny-bbox detections that the final pass discards, causing the live
+// counter to drastically over-estimate persons (e.g. 100+ persons shown
+// during scan vs ~30 in the final gallery).
+pub const MIN_DETECTION_SCORE: f32 = 0.65;
+pub const MIN_FACE_SIDE_PX: f32 = 80.0;
+pub const MIN_FACE_AREA_PX: f32 = 90.0 * 90.0;
+
+/// Returns `true` when a detected face is too small or too uncertain to be
+/// trusted by the live person estimator. Inputs come straight from the
+/// detector (`bbox` in `[x1, y1, x2, y2]`, `score` from SCRFD).
+pub fn is_low_quality(bbox: &[f32; 4], score: f32) -> bool {
+    if score < MIN_DETECTION_SCORE {
+        return true;
+    }
+    let w = bbox[2] - bbox[0];
+    let h = bbox[3] - bbox[1];
+    if w < MIN_FACE_SIDE_PX || h < MIN_FACE_SIDE_PX {
+        return true;
+    }
+    if w * h < MIN_FACE_AREA_PX {
+        return true;
+    }
+    false
+}
+
+/// Convenience overload for `[f64; 4]` bboxes coming from the database
+/// (faces persisted in earlier scans).
+pub fn is_low_quality_f64(bbox: &[f64; 4], score: f64) -> bool {
+    let bbox_f32 = [
+        bbox[0] as f32,
+        bbox[1] as f32,
+        bbox[2] as f32,
+        bbox[3] as f32,
+    ];
+    is_low_quality(&bbox_f32, score as f32)
+}
+
 fn cosine_similarity(a: &[f32], b: &[f32]) -> f32 {
     if a.len() != b.len() || a.is_empty() {
         return 0.0;

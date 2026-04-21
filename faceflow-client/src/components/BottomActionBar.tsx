@@ -150,11 +150,12 @@ export const BottomActionBar: React.FC<BottomActionBarProps> = ({
           <div className="mx-1 h-5 w-px bg-edge" />
           <button
             onClick={onReveal}
-            className="flex items-center gap-1 rounded-md px-2 py-1 text-[11px] font-medium text-fg-muted transition-colors hover:bg-surface hover:text-fg"
+            className="flex items-center gap-1.5 rounded-md px-2 py-1 text-[11px] font-medium text-fg-muted transition-colors hover:bg-surface hover:text-fg"
             title={t("bottom_bar_reveal")}
             aria-label={t("bottom_bar_reveal")}
           >
             <Icon d={ICONS.folder} />
+            <span>{t("bottom_bar_reveal")}</span>
           </button>
         </>
       )}

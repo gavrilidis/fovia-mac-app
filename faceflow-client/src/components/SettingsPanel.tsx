@@ -218,7 +218,12 @@ export const SettingsPanel: React.FC<SettingsPanelProps> = ({ onClose, variant =
         <div className="mb-5 flex items-center justify-between">
           <h3 className={isWindow ? "text-[20px] font-semibold text-fg" : "text-[15px] font-semibold text-fg"}>{t("settings")}</h3>
           {!isWindow && (
-            <button onClick={onClose} className="rounded-lg p-1 text-fg-muted transition-colors hover:bg-surface-hover hover:text-fg">
+            <button
+              onClick={onClose}
+              title={t("close")}
+              aria-label={t("close")}
+              className="rounded-lg p-1 text-fg-muted transition-colors hover:bg-surface-hover hover:text-fg"
+            >
               <svg className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
                 <path strokeLinecap="round" strokeLinejoin="round" d="M6 18L18 6M6 6l12 12" />
               </svg>

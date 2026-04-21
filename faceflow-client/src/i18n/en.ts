@@ -295,12 +295,12 @@ export const en = {
   help_install_title: "Installing FaceFlow",
   help_install_intro: "Open the downloaded DMG file and drag FaceFlow to the Applications folder. On first launch, macOS may block the app because it is not signed with an Apple Developer certificate. There are two ways to allow it to run.",
   help_install_option1: "Option 1: System Settings (recommended)",
-  help_install_step1_title: "Try to open FaceFlow",
-  help_install_step1_desc: "Double-click the app in Applications. macOS will show a message that the app cannot be opened because it is from an unidentified developer.",
+  help_install_step1_title: "Try to open FaceFlow first (important!)",
+  help_install_step1_desc: "Double-click the app in Applications. macOS will show a message that the app cannot be opened because it is from an unidentified developer. Press Cancel. This step is REQUIRED — the \"Open Anyway\" button in System Settings only appears AFTER macOS has blocked at least one launch attempt.",
   help_install_step2_title: "Open System Settings",
-  help_install_step2_desc: "Go to System Settings (Apple menu) > Privacy & Security.",
+  help_install_step2_desc: "Within about 30 seconds of the blocked launch, go to System Settings (Apple menu) > Privacy & Security. If you wait too long the \"Open Anyway\" button may disappear — just try step 1 again to bring it back.",
   help_install_step3_title: "Allow the app",
-  help_install_step3_desc: "Scroll down to the Security section. You will see a message about FaceFlow being blocked. Click \"Open Anyway\" and confirm.",
+  help_install_step3_desc: "Scroll down to the Security section. You will see a message about FaceFlow being blocked. Click \"Open Anyway\" and confirm with your password or Touch ID.",
   help_install_step4_title: "Launch again",
   help_install_step4_desc: "Open FaceFlow again. This time macOS will ask one more time — click Open. After that the app will open normally every time.",
   help_install_option2: "Option 2: Terminal command",
@@ -477,6 +477,20 @@ export const en = {
   progress_current_action_detect: "Detecting faces in {name}",
   progress_errors_label: "{count} error",
   progress_errors_label_other: "{count} errors",
+
+  // ── Overall scan title (shown above the single overall progress bar) ─
+  progress_overall_title: "Scanning library",
+  progress_overall_desc: "Reading photos, decoding previews, and detecting faces. The bar below tracks overall completion of the entire scan.",
+  progress_card_faces_inline_files: "files",
+
+  // ── Per-file substage panel (shown beneath the overall bar) ──────────
+  progress_substage_label: "Current step",
+  progress_substage_raw_title: "Extracting JPEG from RAW",
+  progress_substage_raw_desc: "Pulling the embedded preview out of the RAW file via ExifTool",
+  progress_substage_resize_title: "Resizing JPG",
+  progress_substage_resize_desc: "Downscaling the image so face detection runs at full speed",
+  progress_substage_detect_title: "Detecting faces",
+  progress_substage_detect_desc: "Locating faces and computing identity embeddings on-device",
 } as const;
 
 export type TranslationKey = keyof typeof en;

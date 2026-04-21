@@ -6,6 +6,20 @@ This document covers the steps required to sign, notarize, and distribute FaceFl
 
 ---
 
+## 0. Ad-hoc signing (beta / internal distribution)
+
+During the beta phase, before enrolling in the $99/year Apple Developer Program, FaceFlow is distributed with **ad-hoc code signatures**. This is handled automatically by [build_dmg.sh](../build_dmg.sh):
+
+- If `APPLE_SIGNING_IDENTITY` is unset (or set to `-`), the script runs:
+  - `codesign --force --deep --sign - --timestamp=none` on the `.app` bundle inside the DMG, and
+  - `codesign --force --sign - --timestamp=none` on the DMG itself.
+- An ad-hoc signature does **not** satisfy Gatekeeper on its own, but it is mandatory for the "Right-click → Open" / System Settings → "Open Anyway" override to appear on macOS 14 (Sonoma) and 15 (Sequoia). An unsigned `.app` now silently refuses to launch with no override option.
+- The quarantine flag added by Safari / Telegram on download can still be cleared with `xattr -dr com.apple.quarantine /Applications/FaceFlow.app`.
+
+Once the product ships officially, swap the ad-hoc mode for a real Developer ID by exporting `APPLE_SIGNING_IDENTITY="Developer ID Application: …"` before running `build_dmg.sh`. Everything else in this guide applies as-is.
+
+---
+
 ## 1. Enroll in Apple Developer Program
 
 - URL: https://developer.apple.com/programs/

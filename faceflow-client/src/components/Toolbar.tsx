@@ -338,14 +338,21 @@ export const Toolbar: React.FC<ToolbarProps> = ({
             </IconBtn>
           )}
 
-          <IconBtn
+          {/* New Scan — uses a distinctive positive (green) tint so it
+              visually stands apart from the cluster of neutral icon
+              buttons around it. This is a primary action ("start a new
+              scan") and the user should be able to spot it instantly. */}
+          <button
             onClick={onReset}
             title={t("toolbar_new_scan")}
+            aria-label={t("toolbar_new_scan")}
+            className="flex h-7 items-center gap-1.5 rounded-md bg-positive/15 px-2 text-[11px] font-medium text-positive transition-colors duration-150 hover:bg-positive/25"
           >
-            <svg className="h-[15px] w-[15px]" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+            <svg className="h-[14px] w-[14px]" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
               <path strokeLinecap="round" strokeLinejoin="round" d="M16.023 9.348h4.992v-.001M2.985 19.644v-4.992m0 0h4.992m-4.993 0l3.181 3.183a8.25 8.25 0 0013.803-3.7M4.031 9.865a8.25 8.25 0 0113.803-3.7l3.181 3.182" />
             </svg>
-          </IconBtn>
+            <span>{t("toolbar_new_scan")}</span>
+          </button>
         </div>
       </div>
 

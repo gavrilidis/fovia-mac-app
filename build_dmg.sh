@@ -1,11 +1,28 @@
 #!/bin/bash
-# Build a signed release DMG for FaceFlow.
-# Signing credentials are loaded from ~/.tauri/faceflow.env (never committed).
+# Build a release DMG for FaceFlow.
 #
-# After Tauri produces the DMG, this script repacks it with an extra
-# read-only file ("Инструкция по установке.txt") visible alongside the
-# FaceFlow.app icon and the /Applications symlink, so end users see the
-# installation guide directly inside the disk image window.
+# Two signing modes are supported, auto-selected based on whether a real
+# Developer ID certificate is available:
+#
+#   1. OFFICIAL  — when $APPLE_SIGNING_IDENTITY points at a Developer ID
+#      certificate in the keychain (populated from ~/.tauri/faceflow.env).
+#      Both the .app bundle inside the DMG and the DMG itself are signed
+#      with the Developer ID, and Tauri's notarisation pipeline can take
+#      over from there.
+#
+#   2. AD-HOC    — when no Developer ID is configured (beta / internal
+#      builds distributed through Telegram, TestFlight-free testing, etc).
+#      The .app and DMG are signed with `codesign --force --deep --sign -`
+#      which produces a locally-valid signature with no identity. This
+#      does NOT bypass Gatekeeper on its own, but it's a hard requirement
+#      for the "Right-click → Open" / System Settings → "Open Anyway"
+#      escape hatch on modern macOS (Sonoma / Sequoia). An unsigned .app
+#      just refuses to launch outright on these releases.
+#
+# The end result is a DMG that:
+#   • has the installation instructions file inside it,
+#   • contains a properly-signed .app (ad-hoc by default),
+#   • is itself signed, so macOS accepts the "Open Anyway" override.
 set -euo pipefail
 
 ENV_FILE="$HOME/.tauri/faceflow.env"
@@ -28,7 +45,18 @@ if [ ! -f "$INSTRUCTION_SRC" ]; then
   exit 1
 fi
 
-echo "Building FaceFlow release DMG…"
+# Resolve the signing identity ONCE up-front so every codesign invocation
+# in this script uses the same value. Falls back to "-" (ad-hoc) when no
+# Developer ID is configured.
+SIGN_IDENTITY="${APPLE_SIGNING_IDENTITY:--}"
+if [ "$SIGN_IDENTITY" = "-" ]; then
+  echo "NOTE: no APPLE_SIGNING_IDENTITY configured — using ad-hoc signing (\"-\")."
+  echo "      Suitable for beta distribution; final App Store build will need a real cert."
+else
+  echo "NOTE: signing with \"$SIGN_IDENTITY\"."
+fi
+
+echo "Building FaceFlow release DMG..."
 cd "$REPO_ROOT/faceflow-client"
 npm run tauri build
 
@@ -39,13 +67,12 @@ if [ -z "${DMG_PATH:-}" ] || [ ! -f "$DMG_PATH" ]; then
 fi
 
 echo ""
-echo "Injecting install instructions into $DMG_PATH…"
+echo "Repacking ${DMG_PATH} (inject instructions + sign .app)..."
 
 # Workflow: convert the read-only DMG produced by Tauri to a writable
-# format, mount it, copy the instructions file into its root, unmount,
-# then convert back to a compressed read-only image (UDZO) so the final
-# size stays small. The file is laid out at the DMG root, the same level
-# as FaceFlow.app and the /Applications symlink.
+# format, mount it, copy the instructions file into its root AND sign the
+# bundled .app, unmount, then convert back to a compressed read-only
+# image (UDZO) so the final size stays small.
 TMP_RW="$(mktemp -t faceflow_rw).dmg"
 hdiutil convert "$DMG_PATH" -format UDRW -o "$TMP_RW" -ov >/dev/null
 
@@ -55,9 +82,37 @@ trap 'hdiutil detach "$MOUNT_DIR" >/dev/null 2>&1 || true; rm -f "$TMP_RW"' EXIT
 
 cp "$INSTRUCTION_SRC" "$MOUNT_DIR/"
 
-# Detach explicitly so the next convert step has exclusive access. The
-# trap will still run, but its detach call becomes a no-op once the
-# volume is gone.
+# ── Sign the .app bundle that lives inside the mounted DMG ───────────────
+# Gatekeeper on macOS 14+ refuses to run an unsigned .app even via the
+# Right-click → Open override, so ad-hoc signing is mandatory here. The
+# `--force` flag overwrites any existing signature Tauri produced, and
+# `--deep` walks nested helper bundles / frameworks (there aren't any
+# currently, but this stays robust if we add a sidecar binary later).
+# `--options=runtime` enables the Hardened Runtime so the same command
+# works when we later swap `-` for a real Developer ID.
+APP_IN_DMG=$(find "$MOUNT_DIR" -maxdepth 2 -name "*.app" -print -quit)
+if [ -z "$APP_IN_DMG" ] || [ ! -d "$APP_IN_DMG" ]; then
+  echo "ERROR: could not locate .app bundle inside mounted DMG at $MOUNT_DIR" >&2
+  exit 1
+fi
+echo "Signing $(basename "$APP_IN_DMG") with identity: ${SIGN_IDENTITY}..."
+# --timestamp=none is required for ad-hoc ("-") signing; Apple's timestamp
+# server rejects unauthenticated requests. For real Developer ID builds
+# the timestamp flag is re-enabled below.
+if [ "$SIGN_IDENTITY" = "-" ]; then
+  codesign --force --deep --sign "-" --timestamp=none "$APP_IN_DMG"
+else
+  codesign --force --deep --sign "$SIGN_IDENTITY" --options=runtime --timestamp "$APP_IN_DMG"
+fi
+
+# Quick self-check so a broken signature fails the build immediately,
+# rather than leaving us to discover it in the field.
+codesign --verify --verbose=2 "$APP_IN_DMG" || {
+  echo "ERROR: codesign verification failed for $APP_IN_DMG" >&2
+  exit 1
+}
+
+# Detach explicitly so the next convert step has exclusive access.
 hdiutil detach "$MOUNT_DIR" >/dev/null
 
 # Repack as compressed read-only and atomically replace the original.
@@ -65,14 +120,20 @@ hdiutil convert "$TMP_RW" -format UDZO -imagekey zlib-level=9 -o "$DMG_PATH" -ov
 rm -f "$TMP_RW"
 trap - EXIT
 
-# Re-sign the modified DMG so notarisation/Gatekeeper still trust it.
-# The Apple-issued Developer ID certificate is expected to live in the
-# default keychain; if APPLE_SIGNING_IDENTITY is set we honour it.
-if [ -n "${APPLE_SIGNING_IDENTITY:-}" ]; then
-  echo "Re-signing DMG with $APPLE_SIGNING_IDENTITY…"
-  codesign --force --sign "$APPLE_SIGNING_IDENTITY" "$DMG_PATH"
+# ── Sign the DMG itself ──────────────────────────────────────────────────
+# macOS checks the DMG's signature when the user double-clicks it. For
+# ad-hoc mode we still sign — it keeps the "unidentified developer"
+# dialog on its intended code path (which permits "Open Anyway") instead
+# of the stricter "cannot be opened because Apple cannot check it for
+# malicious software" path that may hide the override entirely.
+echo "Signing DMG with identity: ${SIGN_IDENTITY}..."
+if [ "$SIGN_IDENTITY" = "-" ]; then
+  codesign --force --sign "-" --timestamp=none "$DMG_PATH"
+else
+  codesign --force --sign "$SIGN_IDENTITY" --timestamp "$DMG_PATH"
 fi
 
 echo ""
 echo "Done. DMG (with installation instructions inside):"
 ls -lh "$DMG_PATH"
+codesign --display --verbose=2 "$DMG_PATH" 2>&1 | sed 's/^/  /'
