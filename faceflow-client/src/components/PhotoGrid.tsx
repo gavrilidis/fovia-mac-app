@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useRef, useState } from "react";
+import React, { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import { useVirtualizer } from "@tanstack/react-virtual";
 import type { FaceEntry, PhotoMeta } from "../types";
@@ -219,7 +219,17 @@ export const PhotoGrid: React.FC<PhotoGridProps> = ({
     return () => window.removeEventListener("faceflow:menu", handler as EventListener);
   }, []);
 
-  useEffect(() => {
+  // Measure the scroll container synchronously BEFORE the first paint so
+  // the initial render already has the correct column count and row
+  // height. Previously we used a plain `useEffect` which fires AFTER
+  // paint, meaning the first frame was rendered with `parentWidth = 0`
+  // and the fallback `cardSize = 280`. When the real container was
+  // wider, the virtualizer reserved `rowHeight = 284px` per row while
+  // the actual CSS-grid rows ended up shorter (or taller), leaving a
+  // visible empty band between rows until the user bumped zoom (±) and
+  // forced a remeasure. `useLayoutEffect` eliminates that first-frame
+  // mismatch entirely.
+  useLayoutEffect(() => {
     const node = parentRef.current;
     if (!node) return;
     const update = () => {
@@ -288,7 +298,10 @@ export const PhotoGrid: React.FC<PhotoGridProps> = ({
 
   // Force the virtualizer to recompute positions whenever the row height
   // changes (i.e. when the container width or column count changes).
-  useEffect(() => {
+  // Use `useLayoutEffect` so the new row sizing is committed before the
+  // next paint — otherwise the first frame after a folder switch or a
+  // viewport resize shows rows at stale heights.
+  useLayoutEffect(() => {
     rowVirtualizer.measure();
   }, [rowHeight, rowVirtualizer]);
 

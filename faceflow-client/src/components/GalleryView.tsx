@@ -1,5 +1,6 @@
 import React, { useCallback, useEffect, useMemo } from "react";
 import { invoke } from "@tauri-apps/api/core";
+import { getAllWebviewWindows } from "@tauri-apps/api/webviewWindow";
 import type { FaceEntry, FaceGroup, ColorLabel, PickStatus, EventGroup } from "../types";
 import { FaceSidebar, NO_FACES_ID, LOW_QUALITY_ID, ALL_PHOTOS_ID } from "./FaceSidebar";
 import { PhotoGrid } from "./PhotoGrid";
@@ -132,13 +133,12 @@ export const GalleryView: React.FC<GalleryViewProps> = ({ groups, noFaceFiles, l
     return out;
   }, [mutableGroups, lowQualityFaces, noFaceEntries]);
 
-  const currentPhotos = isNoFacesActive
-    ? noFaceEntries
-    : isLowQualityActive
-      ? lowQualityFaces
-      : isAllPhotosActive
-        ? allPhotosEntries
-        : (activeGroup?.members || []);
+  const currentPhotos = React.useMemo<FaceEntry[]>(() => {
+    if (isNoFacesActive) return noFaceEntries;
+    if (isLowQualityActive) return lowQualityFaces;
+    if (isAllPhotosActive) return allPhotosEntries;
+    return activeGroup?.members || [];
+  }, [isNoFacesActive, isLowQualityActive, isAllPhotosActive, noFaceEntries, lowQualityFaces, allPhotosEntries, activeGroup]);
 
   // Global lookup: face_id → FaceEntry (across all groups)
   const allFacesMap = useMemo(() => {
@@ -415,18 +415,6 @@ export const GalleryView: React.FC<GalleryViewProps> = ({ groups, noFaceFiles, l
     };
   }, [handleExportXmp, handleExportFolderSummary]);
 
-  const handleRevealSelected = useCallback(async () => {
-    if (selectedGroupIds.size === 0) return;
-    const filePaths = mutableGroups
-      .filter((g) => selectedGroupIds.has(g.id))
-      .flatMap((g) => g.members.map((m) => m.file_path));
-    try {
-      await invoke("reveal_in_finder", { filePaths });
-    } catch (e) {
-      console.error("reveal_in_finder failed", e);
-    }
-  }, [mutableGroups, selectedGroupIds]);
-
   const handleSelectAllPersons = useCallback(() => {
     setSelectedGroupIds(new Set(mutableGroups.map((g) => g.id)));
   }, [mutableGroups]);
@@ -469,8 +457,8 @@ export const GalleryView: React.FC<GalleryViewProps> = ({ groups, noFaceFiles, l
   }, [selectedGroupIds]);
 
   // Resolve every distinct file path that belongs to *any* of the selected
-  // person groups. Used by the sidebar bulk actions so a single click can
-  // operate on, say, all photos of three people at once.
+  // person groups. Used by the unified BottomActionBar so one click can
+  // export/rate/reveal every photo of, say, three people at once.
   const selectedPersonsPhotoPaths = useMemo<string[]>(() => {
     if (selectedGroupIds.size === 0) return [];
     const set = new Set<string>();
@@ -480,84 +468,6 @@ export const GalleryView: React.FC<GalleryViewProps> = ({ groups, noFaceFiles, l
     }
     return Array.from(set);
   }, [mutableGroups, selectedGroupIds]);
-
-  const handleSetRatingForSelectedPersons = useCallback(
-    (rating: number) => {
-      if (selectedPersonsPhotoPaths.length === 0) return;
-      setRating(selectedPersonsPhotoPaths, rating);
-    },
-    [selectedPersonsPhotoPaths, setRating],
-  );
-
-  const handleSetColorLabelForSelectedPersons = useCallback(
-    (label: ColorLabel) => {
-      if (selectedPersonsPhotoPaths.length === 0) return;
-      setColorLabel(selectedPersonsPhotoPaths, label);
-    },
-    [selectedPersonsPhotoPaths, setColorLabel],
-  );
-
-  const handleSetPickStatusForSelectedPersons = useCallback(
-    (status: PickStatus) => {
-      if (selectedPersonsPhotoPaths.length === 0) return;
-      setPickStatus(selectedPersonsPhotoPaths, status);
-    },
-    [selectedPersonsPhotoPaths, setPickStatus],
-  );
-
-  // AI bulk for selected persons: temporarily promote the resolved paths
-  // to "selected photos" and reuse the existing AI picker pipeline.
-  const handleAiAnalyzeForSelectedPersons = useCallback(async () => {
-    if (selectedPersonsPhotoPaths.length === 0) return;
-    if (!(await isAiConfigured(getAiProvider()))) {
-      setAiStatus("API key not configured — open Settings to add one");
-      setTimeout(() => setAiStatus(null), 4000);
-      return;
-    }
-    // Map paths back to face_ids so the existing runAiTasks flow picks them
-    // up via its `selectedPhotoIds` branch.
-    const ids = new Set<string>();
-    for (const g of mutableGroups) {
-      if (!selectedGroupIds.has(g.id)) continue;
-      for (const m of g.members) ids.add(m.face_id);
-    }
-    setSelectedPhotoIds(ids);
-    setAiPickerOpen(true);
-  }, [mutableGroups, selectedGroupIds, selectedPersonsPhotoPaths]);
-
-  // Export bulk for selected persons: open the same ExportDialog but feed
-  // it every photo path of every selected person. We promote the photos
-  // into the photo-selection set so the dialog gets the right list.
-  const handleExportForSelectedPersons = useCallback(() => {
-    if (selectedPersonsPhotoPaths.length === 0) return;
-    const ids = new Set<string>();
-    for (const g of mutableGroups) {
-      if (!selectedGroupIds.has(g.id)) continue;
-      for (const m of g.members) ids.add(m.face_id);
-    }
-    setSelectedPhotoIds(ids);
-    setShowExport(true);
-  }, [mutableGroups, selectedGroupIds, selectedPersonsPhotoPaths]);
-
-  // Lightroom XMP sidecars for every photo of every selected person.
-  const handleExportXmpForSelectedPersons = useCallback(async () => {
-    if (selectedPersonsPhotoPaths.length === 0) return;
-    try {
-      await invoke<number>("export_xmp_sidecars", {
-        photoIds: selectedPersonsPhotoPaths,
-        outputDir: "",
-      });
-      setAiStatus(
-        t("xmp_export_done").replace("{count}", String(selectedPersonsPhotoPaths.length)),
-      );
-      setTimeout(() => setAiStatus(null), 3000);
-    } catch (err) {
-      setAiStatus(
-        `${t("xmp_export_failed")}: ${err instanceof Error ? err.message : String(err)}`,
-      );
-      setTimeout(() => setAiStatus(null), 5000);
-    }
-  }, [selectedPersonsPhotoPaths, t]);
 
 
   const handleSelectAll = useCallback(() => {
@@ -1036,16 +946,9 @@ export const GalleryView: React.FC<GalleryViewProps> = ({ groups, noFaceFiles, l
             onToggleGroupSelect={handleToggleGroupSelect}
             onSelectAllPersons={handleSelectAllPersons}
             onDeselectAllPersons={handleDeselectAllPersons}
-            onRevealSelected={handleRevealSelected}
             onDeleteSelected={handleDeletePersons}
             onMergeSelected={handleMergePersons}
             onRenameGroup={handleRenameGroup}
-            onAiAnalyzeSelectedPersons={handleAiAnalyzeForSelectedPersons}
-            onSetRatingForSelectedPersons={handleSetRatingForSelectedPersons}
-            onSetColorLabelForSelectedPersons={handleSetColorLabelForSelectedPersons}
-            onSetPickStatusForSelectedPersons={handleSetPickStatusForSelectedPersons}
-            onExportSelectedPersons={handleExportForSelectedPersons}
-            onExportXmpSelectedPersons={handleExportXmpForSelectedPersons}
           />
         )}
         {eventView ? (
@@ -1140,20 +1043,34 @@ export const GalleryView: React.FC<GalleryViewProps> = ({ groups, noFaceFiles, l
             selectedCount={count}
             onClearSelection={clearSelection}
             onExport={() => {
-              try {
-                localStorage.setItem(
-                  "faceflow-export-payload",
-                  JSON.stringify({ filePaths: targetPaths, groups: mutableGroups }),
-                );
-              } catch {
-                /* localStorage may be full / disabled */
-              }
-              invoke("open_app_window", {
-                name: "export",
-                title: "Export",
-                width: 540,
-                height: 820,
-              }).catch(() => setShowExport(true));
+              // Write the fresh selection payload and force a clean
+              // export window. If an export window is already open from
+              // a previous selection it would silently reuse the stale
+              // payload (Rust `open_app_window` just focuses existing
+              // windows), so close it first and then recreate.
+              (async () => {
+                try {
+                  localStorage.setItem(
+                    "faceflow-export-payload",
+                    JSON.stringify({ filePaths: targetPaths, groups: mutableGroups }),
+                  );
+                } catch {
+                  /* localStorage may be full / disabled */
+                }
+                try {
+                  const wins = await getAllWebviewWindows();
+                  const existing = wins.find((w) => w.label === "faceflow-export");
+                  if (existing) await existing.close();
+                } catch {
+                  /* ignore — fall through to open */
+                }
+                invoke("open_app_window", {
+                  name: "export",
+                  title: "Export",
+                  width: 540,
+                  height: 820,
+                }).catch(() => setShowExport(true));
+              })();
             }}
             onPick={() => setPickStatus(targetPaths, "pick")}
             onReject={() => setPickStatus(targetPaths, "reject")}

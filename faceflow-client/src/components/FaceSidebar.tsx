@@ -1,5 +1,5 @@
 import React, { useState } from "react";
-import type { FaceGroup, ColorLabel, PickStatus } from "../types";
+import type { FaceGroup } from "../types";
 import { useI18n } from "../i18n";
 
 interface FaceSidebarProps {
@@ -15,18 +15,9 @@ interface FaceSidebarProps {
   onToggleGroupSelect: (groupId: string) => void;
   onSelectAllPersons: () => void;
   onDeselectAllPersons: () => void;
-  onRevealSelected: () => void;
   onDeleteSelected: () => void;
   onMergeSelected: () => void;
   onRenameGroup: (groupId: string, name: string) => void;
-  // ---- Optional bulk-actions for the currently selected persons. When
-  //      provided, render the matching buttons in the bulk action bar.
-  onAiAnalyzeSelectedPersons?: () => void;
-  onSetRatingForSelectedPersons?: (rating: number) => void;
-  onSetColorLabelForSelectedPersons?: (label: ColorLabel) => void;
-  onSetPickStatusForSelectedPersons?: (status: PickStatus) => void;
-  onExportSelectedPersons?: () => void;
-  onExportXmpSelectedPersons?: () => void;
 }
 
 export const NO_FACES_ID = "__no_faces__";
@@ -46,22 +37,10 @@ export const FaceSidebar: React.FC<FaceSidebarProps> = ({
   onToggleGroupSelect,
   onSelectAllPersons,
   onDeselectAllPersons,
-  onRevealSelected: _ors,
   onDeleteSelected,
   onMergeSelected,
   onRenameGroup,
-  onAiAnalyzeSelectedPersons: _oasp,
-  onSetRatingForSelectedPersons: _osrsp,
-  onSetColorLabelForSelectedPersons: _osclsp,
-  onSetPickStatusForSelectedPersons: _ospsp,
-  onExportSelectedPersons: _oesp,
-  onExportXmpSelectedPersons: _oexsp,
 }) => {
-  // Per-photo bulk actions are owned by BottomActionBar; person-level
-  // actions (merge / remove-from-view) stay in the sidebar where the
-  // selection itself lives.
-  void _ors;
-  void _oasp; void _osrsp; void _osclsp; void _ospsp; void _oesp; void _oexsp;
   const { t, tn } = useI18n();
   const [hoveredGroup, setHoveredGroup] = useState<string | null>(null);
   const [hoverY, setHoverY] = useState(0);
