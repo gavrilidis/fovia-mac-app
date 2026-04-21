@@ -115,66 +115,41 @@ mkdir -p "$MOUNT_DIR/.background"
 cp "$BG_1X" "$MOUNT_DIR/.background/dmg-background.png"
 cp "$BG_2X" "$MOUNT_DIR/.background/dmg-background@2x.png"
 
-# 3. Generate a fresh .DS_Store with precise icon positions and the
-#    retina background wired in as an alias. Editing the .DS_Store that
-#    Tauri ships proved unreliable (its alias records sometimes confuse
-#    the `ds_store` library); writing one from scratch is deterministic.
-MOUNT_DIR_PY="$MOUNT_DIR" PDF_NAME_PY="$INSTRUCTION_PDF_NAME" /usr/bin/python3 - <<'PY'
-import os, sys, site
-from pathlib import Path
-
-usr = site.getusersitepackages()
-for p in (usr if isinstance(usr, (list, tuple)) else [usr]):
-    if p not in sys.path:
-        sys.path.insert(0, p)
-
-from ds_store import DSStore
-from mac_alias import Bookmark
-
-mount = Path(os.environ["MOUNT_DIR_PY"])
-pdf_name = os.environ["PDF_NAME_PY"]
-bg_rel = mount / ".background" / "dmg-background.png"
-ds_path = mount / ".DS_Store"
-
-try:
-    ds_path.unlink()
-except FileNotFoundError:
-    pass
-
-bookmark_bytes = Bookmark.for_file(str(bg_rel)).to_bytes()
-
-with DSStore.open(str(ds_path), "w+") as d:
-    d["."]["bwsp"] = {
-        "WindowBounds": "{{10, 60}, {660, 480}}",
-        "ShowStatusBar": False,
-        "ShowToolbar": False,
-        "ShowTabView": False,
-        "ShowPathbar": False,
-        "ShowSidebar": False,
-    }
-    d["."]["icvp"] = {
-        "viewOptionsVersion": 1,
-        "backgroundType": 2,
-        "backgroundImageAlias": bookmark_bytes,
-        "backgroundColorRed": 0.0,
-        "backgroundColorGreen": 0.0,
-        "backgroundColorBlue": 0.0,
-        "iconSize": 96.0,
-        "textSize": 12.0,
-        "gridOffsetX": 0.0,
-        "gridOffsetY": 0.0,
-        "gridSpacing": 100.0,
-        "labelOnBottom": True,
-        "showItemInfo": False,
-        "showIconPreview": True,
-        "arrangeBy": "none",
-    }
-    d["FaceFlow.app"]["Iloc"] = (180, 170)
-    d["Applications"]["Iloc"] = (480, 170)
-    d[pdf_name]["Iloc"] = (330, 360)
-
-print("Wrote fresh .DS_Store")
-PY
+# 3. Set DMG window layout via AppleScript.
+#    This is the industry-standard approach (used by create-dmg, dmgbuild,
+#    node-appdmg, etc.). AppleScript writes the background alias using
+#    volume-relative ":" notation, so it resolves correctly on any Mac
+#    regardless of what /Volumes/<name> the DMG is mounted at. A Python
+#    ds_store approach stores an absolute path alias that breaks when the
+#    volume mounts under a different name (e.g. "FaceFlow 2", "FaceFlow 3").
+VOLUME_NAME="$(basename "$MOUNT_DIR")"
+echo "Setting DMG window layout for volume: $VOLUME_NAME ..."
+osascript <<AS
+tell application "Finder"
+  tell disk "$VOLUME_NAME"
+    open
+    set current view of container window to icon view
+    set toolbar visible of container window to false
+    set statusbar visible of container window to false
+    set bounds of container window to {10, 60, 670, 540}
+    set theViewOptions to the icon view options of container window
+    set arrangement of theViewOptions to not arranged
+    set icon size of theViewOptions to 96
+    set text size of theViewOptions to 12
+    set background picture of theViewOptions to file ".background:dmg-background.png"
+    delay 1
+    set position of item "FaceFlow.app" to {180, 170}
+    set position of item "Applications" to {480, 170}
+    set position of item "$INSTRUCTION_PDF_NAME" to {330, 360}
+    close
+    open
+    update without registering applications
+    delay 2
+    close
+  end tell
+end tell
+AS
+echo "DMG window layout applied."
 
 # 4. Sign the .app bundle that lives inside the mounted DMG.
 APP_IN_DMG=$(find "$MOUNT_DIR" -maxdepth 2 -name "*.app" -print -quit)
