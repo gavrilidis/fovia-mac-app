@@ -155,26 +155,20 @@ const FaceThumb: React.FC<{ entry: FaceEntry; size: number }> = ({ entry, size }
       </div>
     );
   }
-  // Approximate sensor-relative crop: zoom into the face using bbox center
-  // mapped into the embedded JPEG preview (assumed full-frame ratio).
-  const SENSOR_W = 6000;
-  const SENSOR_H = 4000;
-  const cx = ((entry.bbox_x1 + entry.bbox_x2) / 2 / SENSOR_W) * 100;
-  const cy = ((entry.bbox_y1 + entry.bbox_y2) / 2 / SENSOR_H) * 100;
-  const faceW = entry.bbox_x2 - entry.bbox_x1;
-  // 4x zoom around face area (preview is much larger than face).
-  const zoom = Math.max(2.5, Math.min(8, (SENSOR_W / Math.max(faceW, 200)) * 0.45));
+  // `preview_base64` is the already-cropped face thumbnail produced by the
+  // backend extractor — render it directly as an <img> exactly like
+  // PhotoGrid does. The previous implementation tried to re-derive a
+  // sensor-relative crop with a hardcoded 6000x4000 assumption, which
+  // misaligned for almost every photo and left the user staring at solid
+  // colored squares.
   return (
-    <div
-      className="flex-shrink-0 overflow-hidden rounded-lg bg-surface ring-1 ring-edge"
-      style={{
-        width: size,
-        height: size,
-        backgroundImage: `url(data:image/jpeg;base64,${entry.preview_base64})`,
-        backgroundRepeat: "no-repeat",
-        backgroundSize: `${zoom * 100}% auto`,
-        backgroundPosition: `${cx}% ${cy}%`,
-      }}
+    <img
+      src={`data:image/jpeg;base64,${entry.preview_base64}`}
+      alt="face preview"
+      loading="lazy"
+      decoding="async"
+      className="flex-shrink-0 rounded-lg object-cover ring-1 ring-edge"
+      style={{ width: size, height: size }}
     />
   );
 };

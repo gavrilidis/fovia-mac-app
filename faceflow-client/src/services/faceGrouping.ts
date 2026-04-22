@@ -172,9 +172,11 @@ function dot(a: number[], b: number[]): number {
  * centroid cosine similarity. Emit a candidate when the similarity falls
  * inside the "review zone" — high enough to be a plausible same-person
  * match but below the strict clustering threshold that would have merged
- * them automatically. The lower bound defaults to 0.40 (well above the
- * "any random face" baseline of ~0.2 for ArcFace) and the upper bound is
- * the user's current cluster threshold.
+ * them automatically. The lower bound defaults to 0.28 (still meaningfully
+ * above the ~0.2 "any random face" baseline for ArcFace) and the upper
+ * bound is the user's current cluster threshold. The wider window is
+ * intentional: it is faster for the user to reject a borderline candidate
+ * with one click than to manually hunt down stranded uncertain faces.
  *
  * Returns at most one suggestion per uncertain group (its best target),
  * sorted by descending confidence.
@@ -182,7 +184,7 @@ function dot(a: number[], b: number[]): number {
 export function computeMergeSuggestions(
   groups: FaceGroup[],
   clusterThreshold: number,
-  reviewFloor = 0.4,
+  reviewFloor = 0.28,
 ): MergeCandidate[] {
   const confident = groups.filter((g) => !g.isUncertain && g.members.length > 0);
   const uncertain = groups.filter((g) => g.isUncertain && g.members.length > 0);
