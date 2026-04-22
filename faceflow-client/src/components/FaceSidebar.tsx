@@ -284,7 +284,7 @@ export const FaceSidebar: React.FC<FaceSidebarProps> = ({
                     )}
                     <div className="mt-px flex items-center gap-1.5">
                       <span className="text-[10px] tabular-nums text-fg-muted">
-                        {tn("count_photos", group.members.length)}
+                        {tn("count_faces", group.members.length)}
                       </span>
                       {(selectedCountPerGroup.get(group.id) || 0) > 0 && (
                         <span className="inline-flex h-4 min-w-4 items-center justify-center rounded-full bg-accent/20 px-1 text-[9px] tabular-nums font-semibold text-accent">
@@ -386,7 +386,7 @@ export const FaceSidebar: React.FC<FaceSidebarProps> = ({
                     {t("sidebar_low_quality")}
                   </div>
                   <div className="mt-px text-[10px] tabular-nums text-fg-muted">
-                    {tn("count_photos", lowQualityCount)}
+                    {tn("count_faces", lowQualityCount)}
                   </div>
                 </div>
               </button>

@@ -135,7 +135,7 @@ const PersonCard: React.FC<{ group: FaceGroup; name: string }> = ({ group, name 
       <div className="min-w-0">
         <div className="truncate text-[12px] font-semibold text-fg">{name}</div>
         <div className="text-[10px] text-fg-muted">
-          {group.members.length} {t("photos")}
+          {group.members.length} {t("faces")}
         </div>
       </div>
     </div>
