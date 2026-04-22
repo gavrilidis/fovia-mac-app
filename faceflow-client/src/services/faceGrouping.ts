@@ -21,8 +21,11 @@ function parseEmbedding(embeddingJson: string): number[] {
  */
 export const LS_QUALITY_THRESHOLD = "faceflow-quality-threshold";
 export const LS_MIN_FACE_SIZE = "faceflow-min-face-size";
-export const DEFAULT_QUALITY_THRESHOLD = 0.65;
-export const DEFAULT_MIN_FACE_SIZE = 80;
+// Industry-standard ArcFace / InsightFace baselines. These intentionally
+// sit on the *permissive* side: it is much easier for the user to review
+// and reject false-merge suggestions than to spot a missed match.
+export const DEFAULT_QUALITY_THRESHOLD = 0.6;
+export const DEFAULT_MIN_FACE_SIZE = 60;
 
 function readNumberLS(key: string, fallback: number): number {
   if (typeof window === "undefined") return fallback;
@@ -71,7 +74,7 @@ async function clusterEmbeddings(
 
 export async function groupFacesByIdentity(
   faces: FaceEntry[],
-  threshold = 0.78,
+  threshold = 0.5,
 ): Promise<GroupingResult> {
   if (faces.length === 0) return { groups: [], lowQualityFaces: [] };
 
@@ -116,5 +119,109 @@ export async function groupFacesByIdentity(
     lowQualityFaces: [],
   };
 }
+
+// ---------- Smart Merge Suggestions -----------------------------------------
+
+export interface MergeCandidate {
+  /** ID of the confident (target) group the uncertain cluster might belong to. */
+  confidentGroupId: string;
+  /** ID of the uncertain (source) group being suggested for merge. */
+  uncertainGroupId: string;
+  /** Cosine similarity between the centroids in [-1, 1]. */
+  similarity: number;
+  /** Human-readable rationale shown in the dialog. */
+  reason: string;
+}
+
+function l2Normalize(vec: number[]): number[] {
+  let sumSq = 0;
+  for (const v of vec) sumSq += v * v;
+  const norm = Math.sqrt(sumSq);
+  if (norm === 0) return vec;
+  const out = new Array<number>(vec.length);
+  for (let i = 0; i < vec.length; i++) out[i] = vec[i] / norm;
+  return out;
+}
+
+function centroid(group: FaceGroup): number[] {
+  if (group.members.length === 0) return [];
+  const dim = parseEmbedding(group.members[0].embedding).length;
+  if (dim === 0) return [];
+  const acc = new Array<number>(dim).fill(0);
+  let counted = 0;
+  for (const m of group.members) {
+    const e = parseEmbedding(m.embedding);
+    if (e.length !== dim) continue;
+    for (let i = 0; i < dim; i++) acc[i] += e[i];
+    counted += 1;
+  }
+  if (counted === 0) return [];
+  for (let i = 0; i < dim; i++) acc[i] /= counted;
+  return l2Normalize(acc);
+}
+
+function dot(a: number[], b: number[]): number {
+  if (a.length !== b.length || a.length === 0) return -1;
+  let s = 0;
+  for (let i = 0; i < a.length; i++) s += a[i] * b[i];
+  return s;
+}
+
+/**
+ * For each uncertain group, find the most similar confident group by
+ * centroid cosine similarity. Emit a candidate when the similarity falls
+ * inside the "review zone" — high enough to be a plausible same-person
+ * match but below the strict clustering threshold that would have merged
+ * them automatically. The lower bound defaults to 0.40 (well above the
+ * "any random face" baseline of ~0.2 for ArcFace) and the upper bound is
+ * the user's current cluster threshold.
+ *
+ * Returns at most one suggestion per uncertain group (its best target),
+ * sorted by descending confidence.
+ */
+export function computeMergeSuggestions(
+  groups: FaceGroup[],
+  clusterThreshold: number,
+  reviewFloor = 0.4,
+): MergeCandidate[] {
+  const confident = groups.filter((g) => !g.isUncertain && g.members.length > 0);
+  const uncertain = groups.filter((g) => g.isUncertain && g.members.length > 0);
+  if (confident.length === 0 || uncertain.length === 0) return [];
+
+  const confidentCentroids = confident.map((g) => ({
+    id: g.id,
+    centroid: centroid(g),
+  }));
+
+  const out: MergeCandidate[] = [];
+  for (const u of uncertain) {
+    const uc = centroid(u);
+    if (uc.length === 0) continue;
+    let bestId: string | null = null;
+    let bestSim = -1;
+    for (const c of confidentCentroids) {
+      if (c.centroid.length === 0) continue;
+      const sim = dot(uc, c.centroid);
+      if (sim > bestSim) {
+        bestSim = sim;
+        bestId = c.id;
+      }
+    }
+    // Only surface as a suggestion when it lands in the "uncertain but
+    // promising" band: above the review floor, below the strict cluster
+    // threshold (otherwise auto-clustering would have merged it).
+    if (bestId && bestSim > reviewFloor && bestSim < clusterThreshold) {
+      out.push({
+        confidentGroupId: bestId,
+        uncertainGroupId: u.id,
+        similarity: bestSim,
+        reason: `Centroid similarity ${(bestSim * 100).toFixed(0)}% — likely the same person but below the strict ${(clusterThreshold * 100).toFixed(0)}% auto-merge threshold.`,
+      });
+    }
+  }
+  out.sort((a, b) => b.similarity - a.similarity);
+  return out;
+}
+
 
 

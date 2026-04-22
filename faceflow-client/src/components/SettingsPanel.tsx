@@ -24,8 +24,8 @@ import type { Locale, Theme } from "../i18n";
 // faceGrouping.ts) can read the same values without prop drilling.
 export const LS_DETECTION_THRESHOLD = "faceflow-detection-threshold";
 export const LS_FACE_THRESHOLD = "faceflow-face-threshold";
-export const DEFAULT_DETECTION_THRESHOLD = 0.4;
-export const DEFAULT_CLUSTER_THRESHOLD = 0.78;
+export const DEFAULT_DETECTION_THRESHOLD = 0.45;
+export const DEFAULT_CLUSTER_THRESHOLD = 0.5;
 
 interface SettingsPanelProps {
   onClose: () => void;

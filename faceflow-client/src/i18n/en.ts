@@ -211,6 +211,7 @@ export const en = {
   merge_dialog_empty_body: "AI did not find any persons that should be merged.",
   merge_dialog_accept: "Merge",
   merge_dialog_skip: "Skip",
+  smart_merge_review: "Review similar faces",
 
   // AI quality badges
   ai_quality_blurry: "Blurry",

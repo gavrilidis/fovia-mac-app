@@ -213,6 +213,7 @@ export const ru: Record<TranslationKey, string> = {
   merge_dialog_empty_body: "ИИ не нашёл персон для объединения.",
   merge_dialog_accept: "Объединить",
   merge_dialog_skip: "Пропустить",
+  smart_merge_review: "Похожие лица для проверки",
 
   // AI quality badges
   ai_quality_blurry: "Размыто",

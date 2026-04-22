@@ -13,6 +13,7 @@ import { SettingsPanel } from "./SettingsPanel";
 import { AiAnalysisDialog } from "./AiAnalysisDialog";
 import { AiTaskPicker, type AiTaskSelection } from "./AiTaskPicker";
 import { MergeSuggestionsDialog, type MergeSuggestion } from "./MergeSuggestionsDialog";
+import type { MergeCandidate } from "../services/faceGrouping";
 import { BottomActionBar } from "./BottomActionBar";
 import { usePhotoMeta } from "../hooks/usePhotoMeta";
 import { useKeyboardShortcuts } from "../hooks/useKeyboardShortcuts";
@@ -29,10 +30,17 @@ interface GalleryViewProps {
   groups: FaceGroup[];
   noFaceFiles: string[];
   lowQualityFaces: FaceEntry[];
+  /**
+   * Smart-merge candidates produced by `computeMergeSuggestions` after each
+   * (re)grouping pass. Surfaced per confident person as a small badge in
+   * the sidebar; clicking the badge opens the merge dialog filtered to
+   * that target.
+   */
+  mergeCandidates: MergeCandidate[];
   onReset: () => void;
 }
 
-export const GalleryView: React.FC<GalleryViewProps> = ({ groups, noFaceFiles, lowQualityFaces, onReset }) => {
+export const GalleryView: React.FC<GalleryViewProps> = ({ groups, noFaceFiles, lowQualityFaces, mergeCandidates, onReset }) => {
   const { t } = useI18n();
 
   // Mutable groups — allow moving photos between persons
@@ -73,6 +81,10 @@ export const GalleryView: React.FC<GalleryViewProps> = ({ groups, noFaceFiles, l
   >([]);
   const [mergeSuggestions, setMergeSuggestions] = React.useState<MergeSuggestion[]>([]);
   const [mergeDialogOpen, setMergeDialogOpen] = React.useState(false);
+  // When the user clicks a "Suggestions: N" badge in the sidebar, we open
+  // the same dialog but populate it with the smart-merge candidates for
+  // that one confident person (instead of the AI-driven cross-pair list).
+  const [smartTargetGroupId, setSmartTargetGroupId] = React.useState<string | null>(null);
   const aiCancelRef = React.useRef(false);
   const [aiTags, setAiTags] = React.useState<Map<string, string[]>>(() => {
     // Restore cached AI tags from localStorage
@@ -757,6 +769,95 @@ export const GalleryView: React.FC<GalleryViewProps> = ({ groups, noFaceFiles, l
     setMergeSuggestions((prev) => prev.filter((_, i) => i !== index));
   }, []);
 
+  // ---------- Smart Merge (centroid-based, local) ---------------------------
+  // User-rejected smart-merge candidates — keyed by uncertain group id so a
+  // dismissed suggestion does not pop back up after a re-render.
+  const [rejectedSmartIds, setRejectedSmartIds] = React.useState<Set<string>>(new Set());
+
+  // All currently visible smart-merge candidates that target a confident
+  // group still present in the active gallery (and were not dismissed).
+  const visibleSmartCandidates = React.useMemo(() => {
+    const validIds = new Set(mutableGroups.map((g) => g.id));
+    return mergeCandidates.filter(
+      (c) =>
+        validIds.has(c.confidentGroupId) &&
+        validIds.has(c.uncertainGroupId) &&
+        !rejectedSmartIds.has(c.uncertainGroupId),
+    );
+  }, [mergeCandidates, mutableGroups, rejectedSmartIds]);
+
+  // Map<confidentGroupId, count> — drives the "Suggestions: N" badge in the
+  // sidebar so the user sees, per person, how many uncertain look-alikes
+  // are waiting for review.
+  const smartSuggestionCountByGroup = React.useMemo(() => {
+    const map = new Map<string, number>();
+    for (const c of visibleSmartCandidates) {
+      map.set(c.confidentGroupId, (map.get(c.confidentGroupId) ?? 0) + 1);
+    }
+    return map;
+  }, [visibleSmartCandidates]);
+
+  // Suggestions to feed into the dialog while in smart-merge mode (filtered
+  // to the clicked confident person), converted to the `MergeSuggestion`
+  // shape the existing dialog already understands.
+  const smartSuggestionsForDialog = React.useMemo<MergeSuggestion[]>(() => {
+    if (!smartTargetGroupId) return [];
+    return visibleSmartCandidates
+      .filter((c) => c.confidentGroupId === smartTargetGroupId)
+      .map((c) => ({
+        groupAId: c.confidentGroupId,
+        groupBId: c.uncertainGroupId,
+        confidence: c.similarity,
+        reason: c.reason,
+      }));
+  }, [visibleSmartCandidates, smartTargetGroupId]);
+
+  const handleShowSuggestionsForGroup = useCallback((groupId: string) => {
+    setSmartTargetGroupId(groupId);
+    setMergeDialogOpen(true);
+  }, []);
+
+  const handleAcceptSmartSuggestion = useCallback((s: MergeSuggestion) => {
+    // Same merge mechanics as the AI flow, but mark the uncertain side as
+    // confident after the merge so it stops appearing under "Uncertain".
+    setMutableGroups((prev) => {
+      const a = prev.find((g) => g.id === s.groupAId);
+      const b = prev.find((g) => g.id === s.groupBId);
+      if (!a || !b) return prev;
+      const mergedMembers = [...a.members, ...b.members];
+      return prev
+        .filter((g) => g.id !== b.id)
+        .map((g) =>
+          g.id === a.id
+            ? { ...g, members: mergedMembers, representative: mergedMembers[0], isUncertain: false }
+            : g,
+        );
+    });
+    setRejectedSmartIds((prev) => {
+      const next = new Set(prev);
+      next.add(s.groupBId);
+      return next;
+    });
+  }, []);
+
+  const handleRejectSmartSuggestion = useCallback(
+    (index: number) => {
+      const s = smartSuggestionsForDialog[index];
+      if (!s) return;
+      setRejectedSmartIds((prev) => {
+        const next = new Set(prev);
+        next.add(s.groupBId);
+        return next;
+      });
+    },
+    [smartSuggestionsForDialog],
+  );
+
+  const handleCloseMergeDialog = useCallback(() => {
+    setMergeDialogOpen(false);
+    setSmartTargetGroupId(null);
+  }, []);
+
   // Move selected photos to a target person group
   const handleMovePhotos = useCallback((targetGroupId: string) => {
     if (selectedPhotoIds.size === 0) return;
@@ -966,6 +1067,8 @@ export const GalleryView: React.FC<GalleryViewProps> = ({ groups, noFaceFiles, l
             noFaceCount={noFaceFiles.length}
             lowQualityCount={lowQualityFaces.length}
             allPhotosCount={allPhotosEntries.length}
+            suggestionCountByGroup={smartSuggestionCountByGroup}
+            onShowSuggestions={handleShowSuggestionsForGroup}
             onSetActive={handleSetActive}
             onToggleGroupSelect={handleToggleGroupSelect}
             onSelectAllPersons={handleSelectAllPersons}
@@ -1152,12 +1255,12 @@ export const GalleryView: React.FC<GalleryViewProps> = ({ groups, noFaceFiles, l
 
       <MergeSuggestionsDialog
         open={mergeDialogOpen}
-        suggestions={mergeSuggestions}
+        suggestions={smartTargetGroupId ? smartSuggestionsForDialog : mergeSuggestions}
         groups={mutableGroups}
         groupNames={groupNames}
-        onClose={() => setMergeDialogOpen(false)}
-        onAccept={handleAcceptMergeSuggestion}
-        onReject={handleRejectMergeSuggestion}
+        onClose={handleCloseMergeDialog}
+        onAccept={smartTargetGroupId ? handleAcceptSmartSuggestion : handleAcceptMergeSuggestion}
+        onReject={smartTargetGroupId ? handleRejectSmartSuggestion : handleRejectMergeSuggestion}
       />
 
       {/* AI status toast */}

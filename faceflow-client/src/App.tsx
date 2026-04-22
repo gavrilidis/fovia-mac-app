@@ -14,7 +14,7 @@ import { ScanSummaryDialog } from "./components/ScanSummaryDialog";
 import { SettingsPanel } from "./components/SettingsPanel";
 import { HelpDialog } from "./components/HelpDialog";
 import { ExportDialog } from "./components/ExportDialog";
-import { groupFacesByIdentity } from "./services/faceGrouping";
+import { groupFacesByIdentity, computeMergeSuggestions, type MergeCandidate } from "./services/faceGrouping";
 import { useI18n } from "./i18n";
 import type { AppView, DownloadProgress, FaceEntry, FaceGroup, ScanProgress, ScanProgressRow, ScanResult, ScanSummary, ModelStatus } from "./types";
 
@@ -108,6 +108,10 @@ function App() {
   const [faceGroups, setFaceGroups] = useState<FaceGroup[]>([]);
   const [noFaceFiles, setNoFaceFiles] = useState<string[]>([]);
   const [lowQualityFaces, setLowQualityFaces] = useState<FaceEntry[]>([]);
+  // Smart-merge candidates produced by `computeMergeSuggestions` after every
+  // (re)grouping pass. Each entry pairs an uncertain group with the most
+  // similar confident group within the user-review band.
+  const [mergeCandidates, setMergeCandidates] = useState<MergeCandidate[]>([]);
   const [error, setError] = useState<string | null>(null);
   const [resumePrompt, setResumePrompt] = useState<{
     folderPath: string;
@@ -123,8 +127,8 @@ function App() {
   const [isResumeScan, setIsResumeScan] = useState(false);
   const [faceMatchThreshold, setFaceMatchThreshold] = useState<number>(() => {
     const value = localStorage.getItem("faceflow-face-threshold");
-    const parsed = value ? Number(value) : 0.78;
-    return Number.isFinite(parsed) ? parsed : 0.78;
+    const parsed = value ? Number(value) : 0.5;
+    return Number.isFinite(parsed) ? parsed : 0.5;
   });
 
   const handleRetryModels = useCallback(async () => {
@@ -235,6 +239,7 @@ function App() {
         setFaceGroups(groups);
         setNoFaceFiles(result.no_face_files);
         setLowQualityFaces(lowFaces);
+        setMergeCandidates(computeMergeSuggestions(groups, effectiveThreshold));
         if (
           result.skipped_files.length > 0 ||
           result.processed_count < result.total_files ||
@@ -274,13 +279,13 @@ function App() {
       // them as parameters.
       const detectionThreshold = (() => {
         const raw = localStorage.getItem("faceflow-detection-threshold");
-        const parsed = raw ? Number(raw) : 0.4;
-        return Number.isFinite(parsed) ? parsed : 0.4;
+        const parsed = raw ? Number(raw) : 0.45;
+        return Number.isFinite(parsed) ? parsed : 0.45;
       })();
       const clusterSimilarity = (() => {
         const raw = localStorage.getItem("faceflow-face-threshold");
-        const parsed = raw ? Number(raw) : 0.78;
-        return Number.isFinite(parsed) ? parsed : 0.78;
+        const parsed = raw ? Number(raw) : 0.5;
+        return Number.isFinite(parsed) ? parsed : 0.5;
       })();
       // Keep React state in sync so the gallery's live re-clustering uses
       // the same value the user picked in Settings.
@@ -371,6 +376,7 @@ function App() {
         const { groups, lowQualityFaces: lq } = await groupFacesByIdentity(allFaces, newThreshold);
         setFaceGroups(groups);
         setLowQualityFaces(lq);
+        setMergeCandidates(computeMergeSuggestions(groups, newThreshold));
       } catch (err) {
         console.warn("Re-clustering failed:", err);
       }
@@ -386,6 +392,7 @@ function App() {
       setFaceGroups([]);
       setNoFaceFiles([]);
       setLowQualityFaces([]);
+      setMergeCandidates([]);
       setError(null);
       setProgress({ total_files: 0, processed: 0, current_file: "", faces_found: 0, unique_persons: 0, errors: 0, last_error: "", phase: "scanning", files_read: 0, previously_processed: 0, total_in_folder: 0 });
     };
@@ -586,6 +593,7 @@ function App() {
     setFaceGroups([]);
     setNoFaceFiles([]);
     setLowQualityFaces([]);
+    setMergeCandidates([]);
     setError(null);
     setProgress({ total_files: 0, processed: 0, current_file: "", faces_found: 0, unique_persons: 0, errors: 0, last_error: "", phase: "scanning", files_read: 0, previously_processed: 0, total_in_folder: 0 });
   }, []);
@@ -782,7 +790,7 @@ function App() {
       )}
       {view === "dropzone" && <DropZone onFolderSelected={handleFolderSelected} />}
       {view === "progress" && <ProgressView progress={progress} isResume={isResumeScan} />}
-      {view === "gallery" && <GalleryView groups={faceGroups} noFaceFiles={noFaceFiles} lowQualityFaces={lowQualityFaces} onReset={handleReset} />}
+      {view === "gallery" && <GalleryView groups={faceGroups} noFaceFiles={noFaceFiles} lowQualityFaces={lowQualityFaces} mergeCandidates={mergeCandidates} onReset={handleReset} />}
 
       {resumePrompt && (
         <ResumeDialog

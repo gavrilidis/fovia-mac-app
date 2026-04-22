@@ -11,6 +11,10 @@ interface FaceSidebarProps {
   noFaceCount: number;
   lowQualityCount: number;
   allPhotosCount: number;
+  /** Map<confidentGroupId, count> for the smart-merge "Suggestions: N" badge. */
+  suggestionCountByGroup?: Map<string, number>;
+  /** Open the smart-merge dialog filtered to suggestions for this group. */
+  onShowSuggestions?: (groupId: string) => void;
   onSetActive: (groupId: string) => void;
   onToggleGroupSelect: (groupId: string) => void;
   onSelectAllPersons: () => void;
@@ -33,6 +37,8 @@ export const FaceSidebar: React.FC<FaceSidebarProps> = ({
   noFaceCount,
   lowQualityCount,
   allPhotosCount,
+  suggestionCountByGroup,
+  onShowSuggestions,
   onSetActive,
   onToggleGroupSelect,
   onSelectAllPersons,
@@ -284,6 +290,33 @@ export const FaceSidebar: React.FC<FaceSidebarProps> = ({
                         <span className="inline-flex h-4 min-w-4 items-center justify-center rounded-full bg-accent/20 px-1 text-[9px] tabular-nums font-semibold text-accent">
                           {selectedCountPerGroup.get(group.id)}
                         </span>
+                      )}
+                      {!isUncertain && (suggestionCountByGroup?.get(group.id) ?? 0) > 0 && onShowSuggestions && (
+                        <button
+                          type="button"
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            onShowSuggestions(group.id);
+                          }}
+                          className="inline-flex items-center gap-0.5 rounded-full bg-amber-500/15 px-1.5 py-0.5 text-[9px] font-semibold text-amber-600 hover:bg-amber-500/25 dark:text-amber-400"
+                          title={t("smart_merge_review")}
+                        >
+                          <svg
+                            className="h-2.5 w-2.5"
+                            fill="none"
+                            viewBox="0 0 24 24"
+                            stroke="currentColor"
+                            strokeWidth={2}
+                            aria-hidden="true"
+                          >
+                            <path
+                              strokeLinecap="round"
+                              strokeLinejoin="round"
+                              d="M9.813 15.904L9 18.75l-.813-2.846a4.5 4.5 0 00-3.09-3.09L2.25 12l2.846-.813a4.5 4.5 0 003.09-3.09L9 5.25l.813 2.846a4.5 4.5 0 003.09 3.09L15.75 12l-2.846.813a4.5 4.5 0 00-3.09 3.09z"
+                            />
+                          </svg>
+                          {suggestionCountByGroup?.get(group.id)}
+                        </button>
                       )}
                     </div>
                   </div>
