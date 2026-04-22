@@ -24,8 +24,8 @@ export const LS_MIN_FACE_SIZE = "faceflow-min-face-size";
 // Industry-standard ArcFace / InsightFace baselines. These intentionally
 // sit on the *permissive* side: it is much easier for the user to review
 // and reject false-merge suggestions than to spot a missed match.
-export const DEFAULT_QUALITY_THRESHOLD = 0.4;
-export const DEFAULT_MIN_FACE_SIZE = 40;
+export const DEFAULT_QUALITY_THRESHOLD = 0.6;
+export const DEFAULT_MIN_FACE_SIZE = 60;
 
 function readNumberLS(key: string, fallback: number): number {
   if (typeof window === "undefined") return fallback;
@@ -116,7 +116,10 @@ export async function groupFacesByIdentity(
 
   return {
     groups: [...confidentGroups, ...uncertainGroups],
-    lowQualityFaces: [],
+    // Surface low-quality faces in the dedicated sidebar folder too
+    // (in addition to grouping them as uncertain persons) so the user
+    // can still review every weak detection in one place.
+    lowQualityFaces,
   };
 }
 

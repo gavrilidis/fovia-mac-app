@@ -4,22 +4,20 @@ import App, { SUB_WINDOW, SubWindowApp } from "./App";
 import { I18nProvider } from "./i18n";
 import "./index.css";
 
-// One-time migration: earlier builds shipped with strict defaults
-// (60 px min face size, 0.60 quality) which left too many real faces in
-// the Uncertain bucket. We now ship more permissive defaults (40 / 0.40)
-// but users who already opened the app have those strict numbers stuck
-// in localStorage. Detect the exact prior-default fingerprint and clear
-// it so the new defaults apply on the next read.
+// Defaults migration. We have shipped two prior baselines:
+//   v1 (initial)        : quality 0.60 / minFace 60   — too strict
+//   v2 (over-correction): quality 0.40 / minFace 40   — way too permissive
+// We are now standardising on the original strict baseline (0.60 / 60)
+// because it produces the cleanest set of confident persons. Reset any
+// localStorage value matching the v2 baseline so the new defaults apply.
 try {
   const ls = window.localStorage;
-  const STRICT_QUALITY = "0.60";
-  const STRICT_MIN_FACE = "60";
-  const MIGRATION_FLAG = "faceflow-defaults-migrated-v2";
+  const MIGRATION_FLAG = "faceflow-defaults-migrated-v3";
   if (!ls.getItem(MIGRATION_FLAG)) {
-    if (ls.getItem("faceflow-quality-threshold") === STRICT_QUALITY) {
+    if (ls.getItem("faceflow-quality-threshold") === "0.40") {
       ls.removeItem("faceflow-quality-threshold");
     }
-    if (ls.getItem("faceflow-min-face-size") === STRICT_MIN_FACE) {
+    if (ls.getItem("faceflow-min-face-size") === "40") {
       ls.removeItem("faceflow-min-face-size");
     }
     ls.setItem(MIGRATION_FLAG, "1");

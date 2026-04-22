@@ -301,25 +301,13 @@ export const SettingsPanel: React.FC<SettingsPanelProps> = ({ onClose, variant =
   );
 
   // ---- Outer wrapper (modal vs window) ------------------------------------
-  const Outer: React.FC<{ children: React.ReactNode }> = ({ children }) =>
-    isWindow ? (
-      <div className="flex h-screen w-screen flex-col bg-surface text-fg">{children}</div>
-    ) : (
-      <div
-        className="fixed inset-0 z-40 flex items-center justify-center bg-surface/60 backdrop-blur-sm"
-        onClick={onClose}
-      >
-        <div
-          className="glass flex h-[500px] w-full max-w-7xl flex-col overflow-hidden rounded-2xl shadow-2xl"
-          onClick={(e) => e.stopPropagation()}
-        >
-          {children}
-        </div>
-      </div>
-    );
-
-  return (
-    <Outer>
+  // NB: this MUST be inlined JSX, not a nested component. Defining a
+  // component inside the render function gives it a new identity on
+  // every render — React then unmounts and remounts the entire subtree
+  // (including the <input type="range">) on every state change, which
+  // breaks pointer capture and prevents the slider from being dragged.
+  const inner = (
+    <>
       <div className="flex flex-1 overflow-hidden">
         {/* ---- Left sidebar (macOS-style category list) ------------------ */}
         <aside className="flex w-[180px] flex-shrink-0 flex-col gap-0.5 border-r border-edge/40 bg-surface-elevated/40 p-2">
@@ -693,6 +681,23 @@ export const SettingsPanel: React.FC<SettingsPanelProps> = ({ onClose, variant =
           {t("settings_apply")}
         </button>
       </div>
-    </Outer>
+    </>
+  );
+
+  if (isWindow) {
+    return <div className="flex h-screen w-screen flex-col bg-surface text-fg">{inner}</div>;
+  }
+  return (
+    <div
+      className="fixed inset-0 z-40 flex items-center justify-center bg-surface/60 backdrop-blur-sm"
+      onClick={onClose}
+    >
+      <div
+        className="glass flex h-[500px] w-[91rem] max-w-[96vw] flex-col overflow-hidden rounded-2xl shadow-2xl"
+        onClick={(e) => e.stopPropagation()}
+      >
+        {inner}
+      </div>
+    </div>
   );
 };
