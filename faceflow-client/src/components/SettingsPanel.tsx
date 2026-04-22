@@ -88,16 +88,6 @@ export const SettingsPanel: React.FC<SettingsPanelProps> = ({ onClose, variant =
   const [draftMinFace, setDraftMinFace] = useState(() =>
     readNumber(LS_MIN_FACE_SIZE, DEFAULT_MIN_FACE_SIZE),
   );
-  // Live slider values — updated on every `onChange` for smooth visual
-  // feedback. The committed `draft*` value (which feeds `hasChanges` and
-  // is what `handleApply` writes to localStorage) only refreshes when the
-  // user releases the pointer, so the heavy `faceflow:face-threshold-changed`
-  // event never fires mid-drag and there is no rapid re-render cascade
-  // that could scroll the modal back to the top.
-  const [liveDetection, setLiveDetection] = useState(draftDetection);
-  const [liveCluster, setLiveCluster] = useState(draftCluster);
-  const [liveQuality, setLiveQuality] = useState(draftQuality);
-  const [liveMinFace, setLiveMinFace] = useState(draftMinFace);
   const [status, setStatus] = useState<{ kind: "success" | "error"; message: string } | null>(null);
   const [testingConnection, setTestingConnection] = useState(false);
   const [resetting, setResetting] = useState(false);
@@ -320,7 +310,7 @@ export const SettingsPanel: React.FC<SettingsPanelProps> = ({ onClose, variant =
         onClick={onClose}
       >
         <div
-          className="glass flex max-h-[80vh] w-[76rem] max-w-[96vw] flex-col overflow-hidden rounded-2xl shadow-2xl"
+          className="glass flex h-[500px] w-full max-w-7xl flex-col overflow-hidden rounded-2xl shadow-2xl"
           onClick={(e) => e.stopPropagation()}
         >
           {children}
@@ -424,7 +414,7 @@ export const SettingsPanel: React.FC<SettingsPanelProps> = ({ onClose, variant =
                 <div className="mb-2 flex items-center justify-between">
                   <h3 className="text-[12px] font-semibold text-fg">{t("detection_threshold")}</h3>
                   <span className="text-[13px] font-bold tabular-nums text-fg">
-                    {liveDetection.toFixed(2)}
+                    {draftDetection.toFixed(2)}
                   </span>
                 </div>
                 <input
@@ -432,10 +422,8 @@ export const SettingsPanel: React.FC<SettingsPanelProps> = ({ onClose, variant =
                   min={0.1}
                   max={0.95}
                   step={0.05}
-                  value={liveDetection}
-                  onChange={(e) => setLiveDetection(parseFloat(e.target.value))}
-                  onPointerUp={(e) => setDraftDetection(parseFloat((e.target as HTMLInputElement).value))}
-                  onBlur={(e) => setDraftDetection(parseFloat(e.target.value))}
+                  value={draftDetection}
+                  onChange={(e) => setDraftDetection(parseFloat(e.target.value))}
                   title={t("detection_threshold")}
                   className="w-full neutral-range"
                 />
@@ -449,7 +437,7 @@ export const SettingsPanel: React.FC<SettingsPanelProps> = ({ onClose, variant =
                 <div className="mb-2 flex items-center justify-between">
                   <h3 className="text-[12px] font-semibold text-fg">{t("cluster_similarity")}</h3>
                   <span className="text-[13px] font-bold tabular-nums text-fg">
-                    {liveCluster.toFixed(2)}
+                    {draftCluster.toFixed(2)}
                   </span>
                 </div>
                 <input
@@ -457,10 +445,8 @@ export const SettingsPanel: React.FC<SettingsPanelProps> = ({ onClose, variant =
                   min={0.4}
                   max={0.95}
                   step={0.01}
-                  value={liveCluster}
-                  onChange={(e) => setLiveCluster(parseFloat(e.target.value))}
-                  onPointerUp={(e) => setDraftCluster(parseFloat((e.target as HTMLInputElement).value))}
-                  onBlur={(e) => setDraftCluster(parseFloat(e.target.value))}
+                  value={draftCluster}
+                  onChange={(e) => setDraftCluster(parseFloat(e.target.value))}
                   title={t("cluster_similarity")}
                   className="w-full neutral-range"
                 />
@@ -476,7 +462,7 @@ export const SettingsPanel: React.FC<SettingsPanelProps> = ({ onClose, variant =
                 <div className="mb-2 flex items-center justify-between">
                   <h3 className="text-[12px] font-semibold text-fg">{t("settings_quality_threshold")}</h3>
                   <span className="text-[13px] font-bold tabular-nums text-fg">
-                    {liveQuality.toFixed(2)}
+                    {draftQuality.toFixed(2)}
                   </span>
                 </div>
                 <input
@@ -484,10 +470,8 @@ export const SettingsPanel: React.FC<SettingsPanelProps> = ({ onClose, variant =
                   min={0.4}
                   max={0.9}
                   step={0.01}
-                  value={liveQuality}
-                  onChange={(e) => setLiveQuality(parseFloat(e.target.value))}
-                  onPointerUp={(e) => setDraftQuality(parseFloat((e.target as HTMLInputElement).value))}
-                  onBlur={(e) => setDraftQuality(parseFloat(e.target.value))}
+                  value={draftQuality}
+                  onChange={(e) => setDraftQuality(parseFloat(e.target.value))}
                   title={t("settings_quality_threshold")}
                   className="w-full neutral-range"
                 />
@@ -502,7 +486,7 @@ export const SettingsPanel: React.FC<SettingsPanelProps> = ({ onClose, variant =
                 <div className="mb-2 flex items-center justify-between">
                   <h3 className="text-[12px] font-semibold text-fg">{t("settings_min_face_size")}</h3>
                   <span className="text-[13px] font-bold tabular-nums text-fg">
-                    {Math.round(liveMinFace)} px
+                    {Math.round(draftMinFace)} px
                   </span>
                 </div>
                 <input
@@ -510,10 +494,8 @@ export const SettingsPanel: React.FC<SettingsPanelProps> = ({ onClose, variant =
                   min={40}
                   max={200}
                   step={5}
-                  value={liveMinFace}
-                  onChange={(e) => setLiveMinFace(parseFloat(e.target.value))}
-                  onPointerUp={(e) => setDraftMinFace(parseFloat((e.target as HTMLInputElement).value))}
-                  onBlur={(e) => setDraftMinFace(parseFloat(e.target.value))}
+                  value={draftMinFace}
+                  onChange={(e) => setDraftMinFace(parseFloat(e.target.value))}
                   title={t("settings_min_face_size")}
                   className="w-full neutral-range"
                 />
