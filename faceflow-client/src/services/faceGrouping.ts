@@ -11,25 +11,36 @@ function parseEmbedding(embeddingJson: string): number[] {
 
 /**
  * Quality criteria — anything not passing these is treated as a "low quality"
- * face (small / blurry / partial / mis-detected). Previously these faces were
- * dropped entirely; now they are surfaced as "Uncertain Persons" so the user
- * can review them without them polluting the confident persons list.
+ * face (small / blurry / partial / mis-detected). Low-quality faces are
+ * surfaced as "Uncertain Persons" instead of being dropped, so the user
+ * can still review them without polluting the confident persons list.
+ *
+ * The defaults below are the *recommended* values; the actual values used
+ * at runtime are read from localStorage (set via Settings → Scan Quality)
+ * so tweaks take effect on the very next regroup / scan.
  */
-const MIN_DETECTION_SCORE = 0.65;
-const MIN_FACE_SIDE_PX = 80;
-const MIN_FACE_AREA_PX = 90 * 90;
+export const LS_QUALITY_THRESHOLD = "faceflow-quality-threshold";
+export const LS_MIN_FACE_SIZE = "faceflow-min-face-size";
+export const DEFAULT_QUALITY_THRESHOLD = 0.65;
+export const DEFAULT_MIN_FACE_SIZE = 80;
 
-/** A confident group with two or fewer members is also flagged uncertain — */
-/** singletons frequently turn out to be detector glitches or odd-angle    */
-/** shots of a person that already has a larger group elsewhere.           */
-const MIN_CONFIDENT_GROUP_SIZE = 3;
+function readNumberLS(key: string, fallback: number): number {
+  if (typeof window === "undefined") return fallback;
+  const raw = window.localStorage.getItem(key);
+  if (raw == null) return fallback;
+  const parsed = Number(raw);
+  return Number.isFinite(parsed) ? parsed : fallback;
+}
 
 export function isLowQuality(face: FaceEntry): boolean {
-  if (face.detection_score < MIN_DETECTION_SCORE) return true;
+  const minScore = readNumberLS(LS_QUALITY_THRESHOLD, DEFAULT_QUALITY_THRESHOLD);
+  const minSide = readNumberLS(LS_MIN_FACE_SIZE, DEFAULT_MIN_FACE_SIZE);
+  if (face.detection_score < minScore) return true;
   const w = face.bbox_x2 - face.bbox_x1;
   const h = face.bbox_y2 - face.bbox_y1;
-  if (w < MIN_FACE_SIDE_PX || h < MIN_FACE_SIDE_PX) return true;
-  if (w * h < MIN_FACE_AREA_PX) return true;
+  if (w < minSide || h < minSide) return true;
+  // Area gate scales with the linear gate so a single slider tunes both.
+  if (w * h < minSide * minSide) return true;
   return false;
 }
 
@@ -72,6 +83,9 @@ export async function groupFacesByIdentity(
   }
 
   // Confident pass — strict clustering on high-quality faces only.
+  // Every cluster from this pass is treated as a confident person regardless
+  // of its size: small confident clusters are still real people who happened
+  // to appear in only a handful of frames, not noise.
   const confidentClusters = await clusterEmbeddings(goodFaces, threshold);
 
   // Uncertain pass — also cluster the low-quality faces (they still have
@@ -79,31 +93,19 @@ export async function groupFacesByIdentity(
   // shots end up together rather than as one group per face.
   const uncertainClusters = await clusterEmbeddings(lowQualityFaces, threshold);
 
-  const confidentGroups: FaceGroup[] = [];
-  const uncertainGroups: FaceGroup[] = [];
+  const confidentGroups: FaceGroup[] = confidentClusters.map((members) => ({
+    id: members[0].face_id,
+    representative: members[0],
+    members,
+    isUncertain: false,
+  }));
 
-  for (const members of confidentClusters) {
-    const group: FaceGroup = {
-      id: members[0].face_id,
-      representative: members[0],
-      members,
-      isUncertain: members.length < MIN_CONFIDENT_GROUP_SIZE,
-    };
-    if (group.isUncertain) {
-      uncertainGroups.push(group);
-    } else {
-      confidentGroups.push(group);
-    }
-  }
-
-  for (const members of uncertainClusters) {
-    uncertainGroups.push({
-      id: members[0].face_id,
-      representative: members[0],
-      members,
-      isUncertain: true,
-    });
-  }
+  const uncertainGroups: FaceGroup[] = uncertainClusters.map((members) => ({
+    id: members[0].face_id,
+    representative: members[0],
+    members,
+    isUncertain: true,
+  }));
 
   // Confident persons first (largest → smallest), uncertain persons last.
   confidentGroups.sort((a, b) => b.members.length - a.members.length);
@@ -114,4 +116,5 @@ export async function groupFacesByIdentity(
     lowQualityFaces: [],
   };
 }
+
 

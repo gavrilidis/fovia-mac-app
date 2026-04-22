@@ -11,6 +11,12 @@ import {
   setAiProvider as saveAiProvider,
   testAiConnection,
 } from "../services/aiService";
+import {
+  LS_QUALITY_THRESHOLD,
+  LS_MIN_FACE_SIZE,
+  DEFAULT_QUALITY_THRESHOLD,
+  DEFAULT_MIN_FACE_SIZE,
+} from "../services/faceGrouping";
 import type { AIProvider } from "../services/aiService";
 import type { Locale, Theme } from "../i18n";
 
@@ -76,6 +82,12 @@ export const SettingsPanel: React.FC<SettingsPanelProps> = ({ onClose, variant =
   const [draftCluster, setDraftCluster] = useState(() =>
     readNumber(LS_FACE_THRESHOLD, DEFAULT_CLUSTER_THRESHOLD),
   );
+  const [draftQuality, setDraftQuality] = useState(() =>
+    readNumber(LS_QUALITY_THRESHOLD, DEFAULT_QUALITY_THRESHOLD),
+  );
+  const [draftMinFace, setDraftMinFace] = useState(() =>
+    readNumber(LS_MIN_FACE_SIZE, DEFAULT_MIN_FACE_SIZE),
+  );
   const [status, setStatus] = useState<{ kind: "success" | "error"; message: string } | null>(null);
   const [testingConnection, setTestingConnection] = useState(false);
   const [resetting, setResetting] = useState(false);
@@ -106,6 +118,8 @@ export const SettingsPanel: React.FC<SettingsPanelProps> = ({ onClose, variant =
   // ---- Change detection ---------------------------------------------------
   const persistedDetection = readNumber(LS_DETECTION_THRESHOLD, DEFAULT_DETECTION_THRESHOLD);
   const persistedCluster = readNumber(LS_FACE_THRESHOLD, DEFAULT_CLUSTER_THRESHOLD);
+  const persistedQuality = readNumber(LS_QUALITY_THRESHOLD, DEFAULT_QUALITY_THRESHOLD);
+  const persistedMinFace = readNumber(LS_MIN_FACE_SIZE, DEFAULT_MIN_FACE_SIZE);
   const hasChanges =
     draftTheme !== theme ||
     draftLocale !== locale ||
@@ -113,10 +127,15 @@ export const SettingsPanel: React.FC<SettingsPanelProps> = ({ onClose, variant =
     draftModel !== getAiModel(draftProvider) ||
     draftApiKey !== savedApiKey ||
     Math.abs(persistedDetection - draftDetection) > 1e-4 ||
-    Math.abs(persistedCluster - draftCluster) > 1e-4;
+    Math.abs(persistedCluster - draftCluster) > 1e-4 ||
+    Math.abs(persistedQuality - draftQuality) > 1e-4 ||
+    Math.abs(persistedMinFace - draftMinFace) > 0.5;
 
   const handleApply = async () => {
     const oldCluster = persistedCluster;
+    const qualityChanged =
+      Math.abs(persistedQuality - draftQuality) > 1e-4 ||
+      Math.abs(persistedMinFace - draftMinFace) > 0.5;
     setTheme(draftTheme);
     setLocale(draftLocale);
     saveAiProvider(draftProvider);
@@ -124,10 +143,14 @@ export const SettingsPanel: React.FC<SettingsPanelProps> = ({ onClose, variant =
     await saveAiApiKey(draftProvider, draftApiKey);
     localStorage.setItem(LS_DETECTION_THRESHOLD, draftDetection.toFixed(2));
     localStorage.setItem(LS_FACE_THRESHOLD, draftCluster.toFixed(2));
+    localStorage.setItem(LS_QUALITY_THRESHOLD, draftQuality.toFixed(2));
+    localStorage.setItem(LS_MIN_FACE_SIZE, Math.round(draftMinFace).toString());
     setSavedApiKey(draftApiKey);
     // Notify the rest of the app so an in-memory regrouping can happen
-    // without forcing the user to re-scan their library.
-    if (Math.abs(oldCluster - draftCluster) > 1e-4) {
+    // without forcing the user to re-scan their library. The same event is
+    // emitted whenever the clustering threshold OR the quality filter
+    // settings change — both require a regroup pass.
+    if (Math.abs(oldCluster - draftCluster) > 1e-4 || qualityChanged) {
       window.dispatchEvent(
         new CustomEvent<number>("faceflow:face-threshold-changed", {
           detail: draftCluster,
@@ -287,7 +310,7 @@ export const SettingsPanel: React.FC<SettingsPanelProps> = ({ onClose, variant =
         onClick={onClose}
       >
         <div
-          className="glass flex h-[34rem] w-[44rem] flex-col overflow-hidden rounded-2xl shadow-2xl"
+          className="glass flex h-[34rem] w-[53rem] flex-col overflow-hidden rounded-2xl shadow-2xl"
           onClick={(e) => e.stopPropagation()}
         >
           {children}
@@ -429,6 +452,55 @@ export const SettingsPanel: React.FC<SettingsPanelProps> = ({ onClose, variant =
                 />
                 <p className="mt-2 text-[11px] leading-relaxed text-fg-muted/80">
                   {t("settings_cluster_help")}
+                </p>
+              </div>
+
+              {/* Face quality threshold — controls which detected faces
+                  enter the *confident* persons pool. Anything below it
+                  becomes an "Uncertain Person" instead of a real person. */}
+              <div className="rounded-lg border border-edge/40 bg-surface-elevated/30 p-4">
+                <div className="mb-2 flex items-center justify-between">
+                  <h3 className="text-[12px] font-semibold text-fg">{t("settings_quality_threshold")}</h3>
+                  <span className="text-[13px] font-bold tabular-nums text-fg">
+                    {draftQuality.toFixed(2)}
+                  </span>
+                </div>
+                <input
+                  type="range"
+                  min={0.4}
+                  max={0.9}
+                  step={0.01}
+                  value={draftQuality}
+                  onChange={(e) => setDraftQuality(parseFloat(e.target.value))}
+                  title={t("settings_quality_threshold")}
+                  className="w-full neutral-range"
+                />
+                <p className="mt-2 text-[11px] leading-relaxed text-fg-muted/80">
+                  {t("settings_quality_help")}
+                </p>
+              </div>
+
+              {/* Minimum face size — gate on the bounding-box edge so
+                  far-away / tiny faces drop into Uncertain Persons too. */}
+              <div className="rounded-lg border border-edge/40 bg-surface-elevated/30 p-4">
+                <div className="mb-2 flex items-center justify-between">
+                  <h3 className="text-[12px] font-semibold text-fg">{t("settings_min_face_size")}</h3>
+                  <span className="text-[13px] font-bold tabular-nums text-fg">
+                    {Math.round(draftMinFace)} px
+                  </span>
+                </div>
+                <input
+                  type="range"
+                  min={40}
+                  max={200}
+                  step={5}
+                  value={draftMinFace}
+                  onChange={(e) => setDraftMinFace(parseFloat(e.target.value))}
+                  title={t("settings_min_face_size")}
+                  className="w-full neutral-range"
+                />
+                <p className="mt-2 text-[11px] leading-relaxed text-fg-muted/80">
+                  {t("settings_min_face_help")}
                 </p>
               </div>
             </section>
