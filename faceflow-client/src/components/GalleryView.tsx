@@ -920,6 +920,10 @@ export const GalleryView: React.FC<GalleryViewProps> = ({ groups, noFaceFiles, l
         id: newId,
         representative: facesToMove[0],
         members: facesToMove,
+        // Manually-created persons are confident by definition — the user
+        // hand-picked these faces, so they should never appear under the
+        // "Uncertain Persons" section.
+        isUncertain: false,
       };
 
       return [...cleaned, newGroup];
@@ -945,6 +949,17 @@ export const GalleryView: React.FC<GalleryViewProps> = ({ groups, noFaceFiles, l
       }
       return next;
     });
+  }, []);
+
+  // Promote an uncertain group to a confident "Person N" — used by the
+  // "Make new person" affordance in the sidebar and the merge dialog.
+  // No clustering changes, no member shuffling: just flip the flag and
+  // (if the group has no custom name yet) leave it untitled so the
+  // sidebar's `getGroupName` fallback renders "Person N" automatically.
+  const handlePromoteToPerson = useCallback((groupId: string) => {
+    setMutableGroups((prev) =>
+      prev.map((g) => (g.id === groupId ? { ...g, isUncertain: false } : g)),
+    );
   }, []);
 
   // Get display name for a group
@@ -1069,6 +1084,7 @@ export const GalleryView: React.FC<GalleryViewProps> = ({ groups, noFaceFiles, l
             allPhotosCount={allPhotosEntries.length}
             suggestionCountByGroup={smartSuggestionCountByGroup}
             onShowSuggestions={handleShowSuggestionsForGroup}
+            onPromoteToPerson={handlePromoteToPerson}
             onSetActive={handleSetActive}
             onToggleGroupSelect={handleToggleGroupSelect}
             onSelectAllPersons={handleSelectAllPersons}
@@ -1217,6 +1233,7 @@ export const GalleryView: React.FC<GalleryViewProps> = ({ groups, noFaceFiles, l
             activeGroupId={photoMode ? activeGroupId : undefined}
             onMovePhotos={photoMode ? handleMovePhotos : undefined}
             onCreateGroupAndMove={photoMode ? handleCreateGroupAndMove : undefined}
+            onCreatePerson={photoMode ? handleCreateGroupAndMove : undefined}
           />
         );
       })()}
@@ -1261,6 +1278,7 @@ export const GalleryView: React.FC<GalleryViewProps> = ({ groups, noFaceFiles, l
         onClose={handleCloseMergeDialog}
         onAccept={smartTargetGroupId ? handleAcceptSmartSuggestion : handleAcceptMergeSuggestion}
         onReject={smartTargetGroupId ? handleRejectSmartSuggestion : handleRejectMergeSuggestion}
+        onMakeNewPerson={(s) => handlePromoteToPerson(s.groupBId)}
       />
 
       {/* AI status toast */}

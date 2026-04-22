@@ -212,6 +212,9 @@ export const en = {
   merge_dialog_accept: "Merge",
   merge_dialog_skip: "Skip",
   smart_merge_review: "Review similar faces",
+  bottom_bar_create_person: "Create person",
+  promote_to_person: "Make new person",
+  promote_to_person_short: "New person",
 
   // AI quality badges
   ai_quality_blurry: "Blurry",

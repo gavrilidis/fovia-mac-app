@@ -214,6 +214,9 @@ export const ru: Record<TranslationKey, string> = {
   merge_dialog_accept: "Объединить",
   merge_dialog_skip: "Пропустить",
   smart_merge_review: "Похожие лица для проверки",
+  bottom_bar_create_person: "Создать персону",
+  promote_to_person: "Это новая персона",
+  promote_to_person_short: "Новая персона",
 
   // AI quality badges
   ai_quality_blurry: "Размыто",

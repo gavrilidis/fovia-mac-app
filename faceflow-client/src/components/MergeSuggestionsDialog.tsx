@@ -17,6 +17,9 @@ interface MergeSuggestionsDialogProps {
   onClose: () => void;
   onAccept: (suggestion: MergeSuggestion) => void;
   onReject: (index: number) => void;
+  /** "Make new person" — promote the suggested uncertain group (right
+   *  side, `groupBId`) to a confident person without merging it into A. */
+  onMakeNewPerson?: (suggestion: MergeSuggestion) => void;
 }
 
 export const MergeSuggestionsDialog: React.FC<MergeSuggestionsDialogProps> = ({
@@ -27,6 +30,7 @@ export const MergeSuggestionsDialog: React.FC<MergeSuggestionsDialogProps> = ({
   onClose,
   onAccept,
   onReject,
+  onMakeNewPerson,
 }) => {
   const { t } = useI18n();
 
@@ -95,6 +99,15 @@ export const MergeSuggestionsDialog: React.FC<MergeSuggestionsDialogProps> = ({
                   >
                     {t("merge_dialog_skip")}
                   </button>
+                  {onMakeNewPerson && gb.isUncertain && (
+                    <button
+                      onClick={() => onMakeNewPerson(s)}
+                      className="rounded-lg border border-accent/40 px-3 py-1 text-[11px] font-medium text-accent transition-all hover:bg-accent/10"
+                      title={t("promote_to_person")}
+                    >
+                      {t("promote_to_person")}
+                    </button>
+                  )}
                   <button
                     onClick={() => onAccept(s)}
                     className="rounded-lg bg-accent px-3 py-1 text-[11px] font-semibold text-white transition-all hover:bg-accent-hover"

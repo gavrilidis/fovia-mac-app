@@ -27,6 +27,11 @@ interface BottomActionBarProps {
   activeGroupId?: string | null;
   onMovePhotos?: (targetGroupId: string) => void;
   onCreateGroupAndMove?: () => void;
+  /** Standalone "Create person" action: extract every selected face into
+   *  a brand-new confident FaceGroup. Same backend handler as
+   *  `onCreateGroupAndMove`, exposed here as a prominent top-level button
+   *  so it is discoverable without opening the Move-to dropdown. */
+  onCreatePerson?: () => void;
   /** When provided, renders an AI Analyze button. Pass only when AI is
    *  configured and there is a meaningful selection to analyse. */
   onAiAnalyze?: () => void;
@@ -88,6 +93,7 @@ export const BottomActionBar: React.FC<BottomActionBarProps> = ({
   activeGroupId,
   onMovePhotos,
   onCreateGroupAndMove,
+  onCreatePerson,
   onAiAnalyze,
 }) => {
   const { t } = useI18n();
@@ -205,6 +211,21 @@ export const BottomActionBar: React.FC<BottomActionBarProps> = ({
           >
             <SparkleIcon />
             <span>{t("ai_analyze")}</span>
+          </button>
+        </>
+      )}
+
+      {onCreatePerson && (
+        <>
+          <div className="mx-1 h-5 w-px bg-edge" />
+          <button
+            onClick={onCreatePerson}
+            className="flex items-center gap-1.5 rounded-md px-2 py-1 text-[11px] font-medium text-fg-muted transition-colors hover:bg-accent/15 hover:text-accent"
+            title={t("bottom_bar_create_person")}
+            aria-label={t("bottom_bar_create_person")}
+          >
+            <Icon d={ICONS.userPlus} />
+            <span>{t("bottom_bar_create_person")}</span>
           </button>
         </>
       )}

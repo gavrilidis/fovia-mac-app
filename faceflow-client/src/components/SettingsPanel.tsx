@@ -320,7 +320,7 @@ export const SettingsPanel: React.FC<SettingsPanelProps> = ({ onClose, variant =
         onClick={onClose}
       >
         <div
-          className="glass flex h-[34rem] w-[64rem] flex-col overflow-hidden rounded-2xl shadow-2xl"
+          className="glass flex max-h-[80vh] w-[76rem] max-w-[96vw] flex-col overflow-hidden rounded-2xl shadow-2xl"
           onClick={(e) => e.stopPropagation()}
         >
           {children}

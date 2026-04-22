@@ -15,6 +15,9 @@ interface FaceSidebarProps {
   suggestionCountByGroup?: Map<string, number>;
   /** Open the smart-merge dialog filtered to suggestions for this group. */
   onShowSuggestions?: (groupId: string) => void;
+  /** Promote an uncertain group to a confident "Person N" — invoked by
+   *  the "Make new person" affordance shown on uncertain rows. */
+  onPromoteToPerson?: (groupId: string) => void;
   onSetActive: (groupId: string) => void;
   onToggleGroupSelect: (groupId: string) => void;
   onSelectAllPersons: () => void;
@@ -39,6 +42,7 @@ export const FaceSidebar: React.FC<FaceSidebarProps> = ({
   allPhotosCount,
   suggestionCountByGroup,
   onShowSuggestions,
+  onPromoteToPerson,
   onSetActive,
   onToggleGroupSelect,
   onSelectAllPersons,
@@ -316,6 +320,29 @@ export const FaceSidebar: React.FC<FaceSidebarProps> = ({
                             />
                           </svg>
                           {suggestionCountByGroup?.get(group.id)}
+                        </button>
+                      )}
+                      {isUncertain && onPromoteToPerson && (
+                        <button
+                          type="button"
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            onPromoteToPerson(group.id);
+                          }}
+                          className="inline-flex items-center gap-0.5 rounded-full bg-accent/15 px-1.5 py-0.5 text-[9px] font-semibold text-accent opacity-0 transition-opacity hover:bg-accent/25 group-hover:opacity-100"
+                          title={t("promote_to_person")}
+                        >
+                          <svg
+                            className="h-2.5 w-2.5"
+                            fill="none"
+                            viewBox="0 0 24 24"
+                            stroke="currentColor"
+                            strokeWidth={2}
+                            aria-hidden="true"
+                          >
+                            <path strokeLinecap="round" strokeLinejoin="round" d="M12 4v16m8-8H4" />
+                          </svg>
+                          {t("promote_to_person_short")}
                         </button>
                       )}
                     </div>
