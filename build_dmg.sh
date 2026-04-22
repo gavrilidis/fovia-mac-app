@@ -38,6 +38,13 @@ fi
 # shellcheck source=/dev/null
 source "$ENV_FILE"
 
+# Always use the on-disk private key so faceflow.env never goes stale.
+# Tauri v2 expects the raw file content (minisign format) in this variable.
+KEY_FILE="$HOME/.tauri/faceflow.key"
+if [ -f "$KEY_FILE" ]; then
+  export TAURI_SIGNING_PRIVATE_KEY="$(cat "$KEY_FILE")"
+fi
+
 # Do NOT set FACEFLOW_SECRET — build.rs reads activation.secret automatically.
 unset FACEFLOW_SECRET
 
@@ -131,7 +138,7 @@ tell application "Finder"
     set current view of container window to icon view
     set toolbar visible of container window to false
     set statusbar visible of container window to false
-    set bounds of container window to {10, 60, 670, 540}
+    set bounds of container window to {10, 60, 670, 610}
     set theViewOptions to the icon view options of container window
     set arrangement of theViewOptions to not arranged
     set icon size of theViewOptions to 96
@@ -140,7 +147,7 @@ tell application "Finder"
     delay 1
     set position of item "FaceFlow.app" to {180, 170}
     set position of item "Applications" to {480, 170}
-    set position of item "$INSTRUCTION_PDF_NAME" to {330, 360}
+    set position of item "$INSTRUCTION_PDF_NAME" to {330, 450}
     close
     open
     update without registering applications
