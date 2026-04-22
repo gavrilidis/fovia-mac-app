@@ -66,6 +66,14 @@ export interface FaceGroup {
   id: string;
   representative: FaceEntry;
   members: FaceEntry[];
+  /**
+   * `true` when the group did not pass strict clustering / quality
+   * criteria (singletons, very small clusters, or low-quality faces).
+   * The UI surfaces these as "Uncertain Person N" with a distinct
+   * visual marker so the user can review them without polluting the
+   * confident persons list.
+   */
+  isUncertain?: boolean;
 }
 
 export interface VolumeInfo {

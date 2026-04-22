@@ -49,6 +49,25 @@ export const FaceSidebar: React.FC<FaceSidebarProps> = ({
 
   const hoveredData = hoveredGroup ? groups.find((g) => g.id === hoveredGroup) : null;
 
+  // Per-section indexing: confident persons are numbered 1..N independently
+  // from uncertain persons (1..M) so labels stay stable when uncertain
+  // groups are inserted, removed, or reordered.
+  const indexByGroupId = React.useMemo(() => {
+    const map = new Map<string, number>();
+    let confidentIdx = 0;
+    let uncertainIdx = 0;
+    for (const g of groups) {
+      if (g.isUncertain) {
+        uncertainIdx += 1;
+        map.set(g.id, uncertainIdx);
+      } else {
+        confidentIdx += 1;
+        map.set(g.id, confidentIdx);
+      }
+    }
+    return map;
+  }, [groups]);
+
   return (
     <div className="relative flex h-full w-[240px] flex-shrink-0 flex-col border-r border-edge bg-surface-alt">
       {/* Face loupe popup */}
@@ -129,8 +148,28 @@ export const FaceSidebar: React.FC<FaceSidebarProps> = ({
           {groups.map((group, idx) => {
             const isActive = activeGroupId === group.id;
             const isChecked = selectedGroupIds.has(group.id);
+            const isUncertain = group.isUncertain === true;
+            const personIdx = indexByGroupId.get(group.id) ?? idx + 1;
+            const fallbackName = isUncertain
+              ? `${t("uncertain_person")} ${personIdx}`
+              : `${t("person")} ${personIdx}`;
+            const displayName = groupNames.get(group.id) || fallbackName;
+            // Insert a divider above the first uncertain group so the
+            // confident persons section is visually separated from the
+            // "Uncertain" section without forcing a structural rewrite.
+            const isFirstUncertain =
+              isUncertain && (idx === 0 || groups[idx - 1].isUncertain !== true);
             return (
-              <div key={group.id} className="group relative flex items-center">
+              <React.Fragment key={group.id}>
+                {isFirstUncertain && (
+                  <div className="mt-2 mb-1 flex items-center gap-2 px-2">
+                    <span className="text-[9px] font-semibold uppercase tracking-[0.14em] text-fg-muted/60">
+                      {t("uncertain_person")}
+                    </span>
+                    <div className="h-px flex-1 bg-edge" />
+                  </div>
+                )}
+                <div className={`group relative flex items-center ${isUncertain ? "opacity-70" : ""}`}>
                 {/* Checkbox */}
                 <button
                   onClick={() => onToggleGroupSelect(group.id)}
@@ -156,9 +195,11 @@ export const FaceSidebar: React.FC<FaceSidebarProps> = ({
                 >
                   {/* Avatar */}
                   <div
-                    className={`h-8 w-8 flex-shrink-0 overflow-hidden rounded-full ring-[1.5px] transition-all ${
+                    className={`relative h-8 w-8 flex-shrink-0 overflow-hidden rounded-full ring-[1.5px] transition-all ${
                       isActive
                         ? "ring-accent ring-offset-2 ring-offset-surface-alt"
+                        : isUncertain
+                        ? "ring-warning/60"
                         : "ring-transparent"
                     } bg-surface-elevated`}
                     onMouseEnter={(e) => {
@@ -182,6 +223,19 @@ export const FaceSidebar: React.FC<FaceSidebarProps> = ({
                           <path strokeLinecap="round" strokeLinejoin="round" d="M15.75 6a3.75 3.75 0 11-7.5 0 3.75 3.75 0 017.5 0zM4.501 20.118a7.5 7.5 0 0114.998 0A17.933 17.933 0 0112 21.75c-2.676 0-5.216-.584-7.499-1.632z" />
                         </svg>
                       </div>
+                    )}
+                    {isUncertain && (
+                      // Small triangle warning marker overlaid on the
+                      // avatar so the uncertain status is recognisable
+                      // even at a glance, not only via italic text.
+                      <span
+                        className="absolute -bottom-0.5 -right-0.5 flex h-3.5 w-3.5 items-center justify-center rounded-full bg-warning text-surface ring-2 ring-surface-alt"
+                        title={t("uncertain_person")}
+                      >
+                        <svg className="h-2 w-2" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={3}>
+                          <path strokeLinecap="round" strokeLinejoin="round" d="M12 9v3.75m0 3.75h.008M10.34 3.94l-7.32 12.683c-.77 1.333.193 3 1.732 3h14.638c1.54 0 2.502-1.667 1.732-3L13.66 3.94a2 2 0 00-3.32 0z" />
+                        </svg>
+                      </span>
                     )}
                   </div>
 
@@ -210,14 +264,16 @@ export const FaceSidebar: React.FC<FaceSidebarProps> = ({
                       />
                     ) : (
                       <div
-                        className="truncate text-[12px] font-medium text-fg"
+                        className={`truncate text-[12px] font-medium ${
+                          isUncertain ? "italic text-fg-muted" : "text-fg"
+                        }`}
                         onDoubleClick={(e) => {
                           e.stopPropagation();
                           setEditingGroupId(group.id);
-                          setEditValue(groupNames.get(group.id) || `${t("person")} ${idx + 1}`);
+                          setEditValue(displayName);
                         }}
                       >
-                        {groupNames.get(group.id) || `${t("person")} ${idx + 1}`}
+                        {displayName}
                       </div>
                     )}
                     <div className="mt-px flex items-center gap-1.5">
@@ -233,6 +289,7 @@ export const FaceSidebar: React.FC<FaceSidebarProps> = ({
                   </div>
                 </button>
               </div>
+              </React.Fragment>
             );
           })}
 

@@ -267,12 +267,25 @@ function App() {
   );
 
   const handleFolderSelected = useCallback(
-    async (folderPath: string, detectionThreshold: number, clusterSimilarity?: number) => {
-      // The DropZone slider is the source of truth for the next scan, so
-      // adopt its clustering value before any prompt or scan kick-off.
-      if (typeof clusterSimilarity === "number" && Number.isFinite(clusterSimilarity)) {
+    async (folderPath: string) => {
+      // Source of truth for technical thresholds is now the macOS-style
+      // Settings window (persisted to localStorage). DropZone no longer
+      // exposes sliders, so we read the values here instead of receiving
+      // them as parameters.
+      const detectionThreshold = (() => {
+        const raw = localStorage.getItem("faceflow-detection-threshold");
+        const parsed = raw ? Number(raw) : 0.4;
+        return Number.isFinite(parsed) ? parsed : 0.4;
+      })();
+      const clusterSimilarity = (() => {
+        const raw = localStorage.getItem("faceflow-face-threshold");
+        const parsed = raw ? Number(raw) : 0.78;
+        return Number.isFinite(parsed) ? parsed : 0.78;
+      })();
+      // Keep React state in sync so the gallery's live re-clustering uses
+      // the same value the user picked in Settings.
+      if (Math.abs(faceMatchThreshold - clusterSimilarity) > 1e-4) {
         setFaceMatchThreshold(clusterSimilarity);
-        localStorage.setItem("faceflow-face-threshold", clusterSimilarity.toFixed(2));
       }
       try {
         const prior = await invoke<ScanProgressRow | null>("get_scan_progress", {
@@ -297,7 +310,7 @@ function App() {
       }
       await runScan(folderPath, detectionThreshold, false, clusterSimilarity);
     },
-    [runScan],
+    [runScan, faceMatchThreshold],
   );
 
   const handleRestartContinue = useCallback(async () => {
@@ -558,7 +571,7 @@ function App() {
       if (event.payload.type === "drop" && view === "dropzone") {
         const paths = event.payload.paths;
         if (paths && paths.length > 0) {
-          handleFolderSelected(paths[0], 0.4);
+          handleFolderSelected(paths[0]);
         }
       }
     });

@@ -8,7 +8,7 @@ import { useI18n } from "../i18n";
 import type { VolumeInfo } from "../types";
 
 interface DropZoneProps {
-  onFolderSelected: (path: string, detectionThreshold: number, clusterSimilarity: number) => void;
+  onFolderSelected: (path: string) => void;
 }
 
 function formatBytes(bytes: number): string {
@@ -22,24 +22,13 @@ function formatBytes(bytes: number): string {
 const FORMATS = ["CR2", "ARW", "NEF", "DNG", "ORF", "RW2", "RAF", "RAW", "HEIC", "HEIF", "AVIF", "JPEG", "PNG", "WebP", "TIFF", "BMP", "GIF"];
 
 export const DropZone: React.FC<DropZoneProps> = ({ onFolderSelected }) => {
-  // DropZone uses the *same* unified SettingsPanel as GalleryView so the
-  // user always sees identical settings on both surfaces.
+  // DropZone is intentionally minimal: logo, drag-and-drop area and the
+  // "Browse Folder" picker. All technical settings (detection threshold,
+  // clustering similarity) live in the macOS-style Settings window so the
+  // first-run experience stays focused on "pick a folder, see persons".
   const { t } = useI18n();
   const [isDragging, setIsDragging] = useState(false);
   const [volumes, setVolumes] = useState<VolumeInfo[]>([]);
-  // Detection sensitivity — lowered from 0.5 to 0.4 to catch harder-to-see
-  // faces (profile angles, partial occlusion, low light). The downstream
-  // quality filter still drops anything below score 0.65 from clustering,
-  // so false positives stay out of the persons grid.
-  const [detectionThreshold, setDetectionThreshold] = useState(0.4);
-  // Clustering similarity — minimum cosine similarity required to merge
-  // two face centroids into the same person. Higher = stricter (more,
-  // smaller groups). 0.78 keeps distinct people apart by default.
-  const [clusterSimilarity, setClusterSimilarity] = useState<number>(() => {
-    const raw = localStorage.getItem("faceflow-face-threshold");
-    const parsed = raw ? Number(raw) : 0.78;
-    return Number.isFinite(parsed) ? parsed : 0.78;
-  });
   const [showSettings, setShowSettings] = useState(false);
   const [showFormats, setShowFormats] = useState(false);
   const dragCounter = useRef(0);
@@ -49,12 +38,6 @@ export const DropZone: React.FC<DropZoneProps> = ({ onFolderSelected }) => {
       .then(setVolumes)
       .catch(() => {});
   }, []);
-
-  // Persist the clustering similarity so the gallery's live re-clustering
-  // and the next scan use the same value the user picked here.
-  useEffect(() => {
-    localStorage.setItem("faceflow-face-threshold", clusterSimilarity.toFixed(2));
-  }, [clusterSimilarity]);
 
   const handleDragEnter = useCallback((e: React.DragEvent) => {
     e.preventDefault();
@@ -94,12 +77,12 @@ export const DropZone: React.FC<DropZoneProps> = ({ onFolderSelected }) => {
         if (path) {
           const lastSlash = path.lastIndexOf("/");
           const folder = lastSlash > 0 ? path.substring(0, lastSlash) : path;
-          onFolderSelected(folder, detectionThreshold, clusterSimilarity);
+          onFolderSelected(folder);
           return;
         }
       }
     },
-    [onFolderSelected, detectionThreshold, clusterSimilarity],
+    [onFolderSelected],
   );
 
   const handleBrowse = useCallback(async () => {
@@ -109,9 +92,9 @@ export const DropZone: React.FC<DropZoneProps> = ({ onFolderSelected }) => {
       title: "Select Photo Folder",
     });
     if (selected) {
-      onFolderSelected(selected as string, detectionThreshold, clusterSimilarity);
+      onFolderSelected(selected as string);
     }
-  }, [onFolderSelected, detectionThreshold, clusterSimilarity]);
+  }, [onFolderSelected]);
 
   const usedPercent = (vol: VolumeInfo) => {
     if (vol.total_bytes === 0) return 0;
@@ -274,7 +257,7 @@ export const DropZone: React.FC<DropZoneProps> = ({ onFolderSelected }) => {
                     </div>
 
                     <button
-                      onClick={() => onFolderSelected(vol.mount_point, detectionThreshold, clusterSimilarity)}
+                      onClick={() => onFolderSelected(vol.mount_point)}
                       className="flex-shrink-0 rounded-lg bg-surface/80 px-2.5 py-1 text-[10px] font-medium text-fg-muted transition-all hover:bg-accent hover:text-white"
                     >
                       {t("scan_drive")}
@@ -283,60 +266,6 @@ export const DropZone: React.FC<DropZoneProps> = ({ onFolderSelected }) => {
                 ))
               )}
             </div>
-          </div>
-
-          {/* Detection threshold */}
-          <div className="mt-4 rounded-xl border border-edge bg-surface-elevated/50 px-5 py-3">
-            <div className="flex items-center gap-4">
-              <div className="flex-1 min-w-0">
-                <h3 className="text-[12px] font-semibold text-fg">{t("detection_threshold")}</h3>
-                <p className="mt-0.5 text-[10px] text-fg-muted leading-snug">{t("recommended")}</p>
-              </div>
-            <div className="flex items-center gap-3 flex-shrink-0">
-              <input
-                type="range"
-                min={0.1}
-                max={0.95}
-                step={0.05}
-                value={detectionThreshold}
-                onChange={(e) => setDetectionThreshold(parseFloat(e.target.value))}
-                title={t("detection_threshold")}
-                className="h-1.5 w-28 neutral-range"
-              />
-              <span className="w-9 text-right text-[14px] font-bold tabular-nums text-fg">
-                {detectionThreshold.toFixed(2)}
-              </span>
-            </div>
-            </div>
-            <p className="mt-2 text-[10px] text-fg-muted/60 leading-relaxed">{t("detection_threshold_desc")}</p>
-          </div>
-
-          {/* Clustering similarity — controls how aggressively faces are
-              merged into the same person. Mirrors the SettingsPanel slider
-              so the user can tune it before the scan even starts. */}
-          <div className="mt-3 rounded-xl border border-edge bg-surface-elevated/50 px-5 py-3">
-            <div className="flex items-center gap-4">
-              <div className="flex-1 min-w-0">
-                <h3 className="text-[12px] font-semibold text-fg">{t("cluster_similarity")}</h3>
-                <p className="mt-0.5 text-[10px] text-fg-muted leading-snug">{t("recommended")}</p>
-              </div>
-              <div className="flex items-center gap-3 flex-shrink-0">
-                <input
-                  type="range"
-                  min={0.40}
-                  max={0.95}
-                  step={0.01}
-                  value={clusterSimilarity}
-                  onChange={(e) => setClusterSimilarity(parseFloat(e.target.value))}
-                  title={t("cluster_similarity")}
-                  className="h-1.5 w-28 neutral-range"
-                />
-                <span className="w-9 text-right text-[14px] font-bold tabular-nums text-fg">
-                  {clusterSimilarity.toFixed(2)}
-                </span>
-              </div>
-            </div>
-            <p className="mt-2 text-[10px] text-fg-muted/60 leading-relaxed">{t("cluster_similarity_desc")}</p>
           </div>
 
           {/* Supported formats — collapsible */}
