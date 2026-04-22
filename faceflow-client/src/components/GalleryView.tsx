@@ -45,11 +45,24 @@ export const GalleryView: React.FC<GalleryViewProps> = ({ groups, noFaceFiles, l
 
   // Mutable groups — allow moving photos between persons
   const [mutableGroups, setMutableGroups] = React.useState<FaceGroup[]>(groups);
+  // Mutable copies of the parent-supplied low-quality and no-face lists.
+  // We need local control over these because the destructive actions
+  // (delete photo, dissolve person) have to surgically remove entries
+  // from each pool without forcing a full re-scan or round-trip to the
+  // parent. They are kept in sync with the parent via the effect below.
+  const [mutableLowQualityFaces, setMutableLowQualityFaces] = React.useState<FaceEntry[]>(lowQualityFaces);
+  const [mutableNoFaceFiles, setMutableNoFaceFiles] = React.useState<string[]>(noFaceFiles);
   // Keep local groups in sync when the parent swaps them (e.g. after a
   // force_regroup_faces call).
   React.useEffect(() => {
     setMutableGroups(groups);
   }, [groups]);
+  React.useEffect(() => {
+    setMutableLowQualityFaces(lowQualityFaces);
+  }, [lowQualityFaces]);
+  React.useEffect(() => {
+    setMutableNoFaceFiles(noFaceFiles);
+  }, [noFaceFiles]);
   const [groupNames, setGroupNames] = React.useState<Map<string, string>>(new Map());
 
   const [activeGroupId, setActiveGroupId] = React.useState<string | null>(
@@ -115,7 +128,7 @@ export const GalleryView: React.FC<GalleryViewProps> = ({ groups, noFaceFiles, l
   // Create pseudo-entries for no-face files so PhotoGrid can render them
   const noFaceEntries: FaceEntry[] = React.useMemo(
     () =>
-      noFaceFiles.map((filePath, i) => ({
+      mutableNoFaceFiles.map((filePath, i) => ({
         face_id: `__noface_${i}`,
         file_path: filePath,
         bbox_x1: 0,
@@ -126,7 +139,7 @@ export const GalleryView: React.FC<GalleryViewProps> = ({ groups, noFaceFiles, l
         detection_score: 0,
         preview_base64: "",
       })),
-    [noFaceFiles],
+    [mutableNoFaceFiles],
   );
 
   // "All scanned photos" — one entry per unique file across the entire
@@ -144,17 +157,17 @@ export const GalleryView: React.FC<GalleryViewProps> = ({ groups, noFaceFiles, l
     for (const g of mutableGroups) {
       for (const m of g.members) consider(m);
     }
-    for (const lq of lowQualityFaces) consider(lq);
+    for (const lq of mutableLowQualityFaces) consider(lq);
     for (const nf of noFaceEntries) consider(nf);
     return out;
-  }, [mutableGroups, lowQualityFaces, noFaceEntries]);
+  }, [mutableGroups, mutableLowQualityFaces, noFaceEntries]);
 
   const currentPhotos = React.useMemo<FaceEntry[]>(() => {
     if (isNoFacesActive) return noFaceEntries;
-    if (isLowQualityActive) return lowQualityFaces;
+    if (isLowQualityActive) return mutableLowQualityFaces;
     if (isAllPhotosActive) return allPhotosEntries;
     return activeGroup?.members || [];
-  }, [isNoFacesActive, isLowQualityActive, isAllPhotosActive, noFaceEntries, lowQualityFaces, allPhotosEntries, activeGroup]);
+  }, [isNoFacesActive, isLowQualityActive, isAllPhotosActive, noFaceEntries, mutableLowQualityFaces, allPhotosEntries, activeGroup]);
 
   // Global lookup: face_id → FaceEntry (across all groups)
   const allFacesMap = useMemo(() => {
@@ -174,11 +187,11 @@ export const GalleryView: React.FC<GalleryViewProps> = ({ groups, noFaceFiles, l
         paths.add(m.file_path);
       }
     }
-    for (const fp of noFaceFiles) {
+    for (const fp of mutableNoFaceFiles) {
       paths.add(fp);
     }
     return Array.from(paths);
-  }, [mutableGroups, noFaceFiles]);
+  }, [mutableGroups, mutableNoFaceFiles]);
 
   const { metaMap, setRating, setColorLabel, setPickStatus } = usePhotoMeta(allFilePaths);
 
@@ -962,6 +975,107 @@ export const GalleryView: React.FC<GalleryViewProps> = ({ groups, noFaceFiles, l
     );
   }, []);
 
+  // Create a brand-new, empty confident person so the user can drag
+  // photos into it later. Uses a synthetic representative with an empty
+  // preview — the sidebar falls back to a placeholder avatar in that
+  // case. We immediately make the new person active so the user lands
+  // on the empty bin and can see what to do next.
+  const handleCreateEmptyPerson = useCallback(() => {
+    const newId = `__custom_${Date.now()}`;
+    const placeholder: FaceEntry = {
+      face_id: `${newId}_placeholder`,
+      file_path: "",
+      bbox_x1: 0,
+      bbox_y1: 0,
+      bbox_x2: 0,
+      bbox_y2: 0,
+      embedding: "",
+      detection_score: 0,
+      preview_base64: "",
+    };
+    const newGroup: FaceGroup = {
+      id: newId,
+      representative: placeholder,
+      members: [],
+      isUncertain: false,
+    };
+    setMutableGroups((prev) => [...prev, newGroup]);
+    setActiveGroupId(newId);
+  }, []);
+
+  // Dissolve a confident person: remove the group and route its faces
+  // back to the Low Quality bin so the user can re-discover them later.
+  // We do NOT touch the underlying photo files or DB records — only the
+  // user-facing grouping changes.
+  const handleDissolveGroup = useCallback((groupId: string) => {
+    setMutableGroups((prev) => {
+      const target = prev.find((g) => g.id === groupId);
+      if (!target) return prev;
+      // Move the group's real faces (skip synthetic placeholders) into
+      // the local low-quality pool so the photos remain reachable.
+      const realFaces = target.members.filter((m) => m.file_path !== "");
+      if (realFaces.length > 0) {
+        setMutableLowQualityFaces((lq) => [...lq, ...realFaces]);
+      }
+      return prev.filter((g) => g.id !== groupId);
+    });
+    setActiveGroupId((current) => (current === groupId ? null : current));
+    setSelectedGroupIds((prev) => {
+      if (!prev.has(groupId)) return prev;
+      const next = new Set(prev);
+      next.delete(groupId);
+      return next;
+    });
+  }, []);
+
+  // Permanently delete the currently-selected photos: ask Rust to move
+  // the files to the Trash and wipe the DB rows, then prune every local
+  // pool (groups, low-quality, no-face) so the UI immediately reflects
+  // the deletion without waiting for a re-scan. When no individual
+  // photos are selected, falls back to deleting every photo of every
+  // selected person — matching the rest of the bottom-bar's UX.
+  const handleDeletePhotos = useCallback(async () => {
+    const targetPaths = selectedPhotoPaths.length > 0
+      ? Array.from(selectedPhotoPaths)
+      : Array.from(selectedPersonsPhotoPaths);
+    if (targetPaths.length === 0) return;
+    const confirmMsg = t("bottom_bar_delete_photos_confirm").replace(
+      "{count}",
+      String(targetPaths.length),
+    );
+    if (typeof window !== "undefined" && !window.confirm(confirmMsg)) return;
+    try {
+      await invoke<number>("delete_photos_completely", { filePaths: targetPaths });
+    } catch (err) {
+      console.error("delete_photos_completely failed:", err);
+      if (typeof window !== "undefined") {
+        window.alert(String(err));
+      }
+      return;
+    }
+    const dropped = new Set(targetPaths);
+    setMutableGroups((prev) =>
+      prev
+        .map((g) => ({
+          ...g,
+          members: g.members.filter((m) => !dropped.has(m.file_path)),
+        }))
+        .map((g) => ({
+          ...g,
+          representative: g.members[0] || g.representative,
+        }))
+        // Keep empty user-created groups around (id starts with `__custom_`)
+        // so the user doesn't lose a freshly-created person just because
+        // they deleted the only photo it had. Auto-discovered groups that
+        // become empty are dropped.
+        .filter((g) => g.members.length > 0 || g.id.startsWith("__custom_")),
+    );
+    setMutableLowQualityFaces((prev) => prev.filter((f) => !dropped.has(f.file_path)));
+    setMutableNoFaceFiles((prev) => prev.filter((p) => !dropped.has(p)));
+    setSelectedPhotoIds(new Set());
+    setSelectedGroupIds(new Set());
+  }, [selectedPhotoPaths, selectedPersonsPhotoPaths, t]);
+
   // Get display name for a group
   const getGroupName = useCallback((groupId: string, index: number) => {
     return groupNames.get(groupId) || `Person ${index + 1}`;
@@ -1079,12 +1193,14 @@ export const GalleryView: React.FC<GalleryViewProps> = ({ groups, noFaceFiles, l
             activeGroupId={activeGroupId}
             selectedGroupIds={selectedGroupIds}
             selectedCountPerGroup={selectedCountPerGroup}
-            noFaceCount={noFaceFiles.length}
-            lowQualityCount={lowQualityFaces.length}
+            noFaceCount={mutableNoFaceFiles.length}
+            lowQualityCount={mutableLowQualityFaces.length}
             allPhotosCount={allPhotosEntries.length}
             suggestionCountByGroup={smartSuggestionCountByGroup}
             onShowSuggestions={handleShowSuggestionsForGroup}
             onPromoteToPerson={handlePromoteToPerson}
+            onCreatePerson={handleCreateEmptyPerson}
+            onDissolveGroup={handleDissolveGroup}
             onSetActive={handleSetActive}
             onToggleGroupSelect={handleToggleGroupSelect}
             onSelectAllPersons={handleSelectAllPersons}
@@ -1234,6 +1350,7 @@ export const GalleryView: React.FC<GalleryViewProps> = ({ groups, noFaceFiles, l
             onMovePhotos={photoMode ? handleMovePhotos : undefined}
             onCreateGroupAndMove={photoMode ? handleCreateGroupAndMove : undefined}
             onCreatePerson={photoMode ? handleCreateGroupAndMove : undefined}
+            onDeletePhotos={photoMode || personMode ? handleDeletePhotos : undefined}
           />
         );
       })()}

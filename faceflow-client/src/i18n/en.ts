@@ -213,8 +213,13 @@ export const en = {
   merge_dialog_skip: "Skip",
   smart_merge_review: "Review similar faces",
   bottom_bar_create_person: "Create person",
+  bottom_bar_delete_photos: "Delete photos",
+  bottom_bar_delete_photos_confirm: "Permanently delete {count} file(s)? Files will be moved to the Trash.",
+  sidebar_create_person: "Create empty person",
+  sidebar_dissolve_person: "Delete person",
+  sidebar_dissolve_person_confirm: "Delete this person? Faces will move back to Low Quality.",
   promote_to_person: "Make new person",
-  promote_to_person_short: "New person",
+  promote_to_person_short: "Make new person",
 
   // AI quality badges
   ai_quality_blurry: "Blurry",

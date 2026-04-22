@@ -4,20 +4,22 @@ import App, { SUB_WINDOW, SubWindowApp } from "./App";
 import { I18nProvider } from "./i18n";
 import "./index.css";
 
-// Defaults migration. We have shipped two prior baselines:
+// Defaults migration. We have shipped multiple baselines over time:
 //   v1 (initial)        : quality 0.60 / minFace 60   — too strict
-//   v2 (over-correction): quality 0.40 / minFace 40   — way too permissive
-// We are now standardising on the original strict baseline (0.60 / 60)
-// because it produces the cleanest set of confident persons. Reset any
-// localStorage value matching the v2 baseline so the new defaults apply.
+//   v2 (over-correction): quality 0.40 / minFace 40   — flagged as too permissive
+//   v3 (strict revert)  : quality 0.60 / minFace 60   — back to v1
+//   v4 (current)        : quality 0.40 / minFace 40   — relaxed again, this is
+//                        the recommended baseline going forward.
+// On v4, drop any explicit value matching the older v1/v3 strict baseline so
+// users land on the new permissive defaults automatically.
 try {
   const ls = window.localStorage;
-  const MIGRATION_FLAG = "faceflow-defaults-migrated-v3";
+  const MIGRATION_FLAG = "faceflow-defaults-migrated-v4";
   if (!ls.getItem(MIGRATION_FLAG)) {
-    if (ls.getItem("faceflow-quality-threshold") === "0.40") {
+    if (ls.getItem("faceflow-quality-threshold") === "0.60") {
       ls.removeItem("faceflow-quality-threshold");
     }
-    if (ls.getItem("faceflow-min-face-size") === "40") {
+    if (ls.getItem("faceflow-min-face-size") === "60") {
       ls.removeItem("faceflow-min-face-size");
     }
     ls.setItem(MIGRATION_FLAG, "1");

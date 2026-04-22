@@ -35,6 +35,11 @@ interface BottomActionBarProps {
   /** When provided, renders an AI Analyze button. Pass only when AI is
    *  configured and there is a meaningful selection to analyse. */
   onAiAnalyze?: () => void;
+  /** Permanently remove the selected photo files from disk and from the
+   *  database. The bar surfaces this as a destructive trash button on the
+   *  right side, separated from the rest. The handler MUST itself ask the
+   *  user to confirm before actually deleting anything. */
+  onDeletePhotos?: () => void;
 }
 
 const Icon: React.FC<{ d: string; className?: string }> = ({ d, className }) => (
@@ -95,6 +100,7 @@ export const BottomActionBar: React.FC<BottomActionBarProps> = ({
   onCreateGroupAndMove,
   onCreatePerson,
   onAiAnalyze,
+  onDeletePhotos,
 }) => {
   const { t } = useI18n();
   const [moveMenuOpen, setMoveMenuOpen] = React.useState(false);
@@ -319,6 +325,20 @@ export const BottomActionBar: React.FC<BottomActionBarProps> = ({
       )}
 
       <div className="ml-auto flex items-center gap-1">
+        {onDeletePhotos && (
+          <>
+            <button
+              onClick={onDeletePhotos}
+              className="flex items-center gap-1.5 rounded-md border border-negative/40 px-2 py-1 text-[11px] font-medium text-negative transition-colors hover:bg-negative/15"
+              title={t("bottom_bar_delete_photos")}
+              aria-label={t("bottom_bar_delete_photos")}
+            >
+              <Icon d={ICONS.trash} />
+              <span>{t("bottom_bar_delete_photos")}</span>
+            </button>
+            <div className="mx-1 h-5 w-px bg-edge" />
+          </>
+        )}
         <button
           onClick={onExport}
           className="flex items-center gap-1 rounded-md bg-accent px-2.5 py-1 text-[11px] font-semibold text-white transition-colors hover:bg-accent-hover"
