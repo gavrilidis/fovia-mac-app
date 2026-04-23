@@ -95,6 +95,7 @@ pub fn run() {
             commands::scan::cancel_scan,
             commands::scan::reset_folder_data,
             commands::scan::count_folder_scanned_files,
+            commands::scan::delete_photos_completely,
             services::secrets::save_secret,
             services::secrets::get_secret,
             services::secrets::delete_secret,

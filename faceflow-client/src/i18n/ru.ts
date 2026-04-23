@@ -215,8 +215,13 @@ export const ru: Record<TranslationKey, string> = {
   merge_dialog_skip: "Пропустить",
   smart_merge_review: "Похожие лица для проверки",
   bottom_bar_create_person: "Создать персону",
+  bottom_bar_delete_photos: "Удалить фото",
+  bottom_bar_delete_photos_confirm: "Безвозвратно удалить {count} файл(ов)? Файлы будут перемещены в Корзину.",
+  sidebar_create_person: "Создать пустую персону",
+  sidebar_dissolve_person: "Удалить персону",
+  sidebar_dissolve_person_confirm: "Удалить эту персону? Лица вернутся в «Низкое качество».",
   promote_to_person: "Это новая персона",
-  promote_to_person_short: "Новая персона",
+  promote_to_person_short: "Сделать персоной",
 
   // AI quality badges
   ai_quality_blurry: "Размыто",

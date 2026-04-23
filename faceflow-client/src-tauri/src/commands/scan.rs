@@ -6,6 +6,7 @@ use std::sync::{Arc, Mutex};
 use base64::{engine::general_purpose::STANDARD as BASE64, Engine};
 use r2d2::PooledConnection;
 use r2d2_sqlite::SqliteConnectionManager;
+use rusqlite::params;
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 use sysinfo::Disks;
@@ -1008,6 +1009,92 @@ pub fn reset_folder_data(app: AppHandle, folder_path: String) -> Result<u64, Str
 pub fn count_folder_scanned_files(app: AppHandle, folder_path: String) -> Result<u64, String> {
     let conn = get_db_connection(&app)?;
     database::count_folder_scanned_files(&conn, &folder_path)
+}
+
+/// Permanently remove the given photo files from disk and from every
+/// FaceFlow-owned table (faces, metadata, tags, scanned-file hashes).
+///
+/// Files are moved to the macOS Trash via Finder rather than `unlink`-ed
+/// with `std::fs::remove_file` so the user keeps the standard "Put Back"
+/// recovery affordance — accidental deletions of irreplaceable photos
+/// would otherwise be unrecoverable.
+///
+/// The DB cleanup runs in a single transaction *after* every file move
+/// has succeeded so we never end up with phantom face rows referencing
+/// missing files. Files that no longer exist on disk are still cleaned
+/// out of the DB (treated as already-trashed).
+///
+/// Returns the number of files that were trashed (files that were already
+/// missing are still counted as "deleted from the app's perspective").
+#[tauri::command]
+pub fn delete_photos_completely(app: AppHandle, file_paths: Vec<String>) -> Result<u64, String> {
+    if file_paths.is_empty() {
+        return Ok(0);
+    }
+
+    // 1. Move every existing file to the macOS Trash. Missing files are
+    //    treated as "already trashed" so re-running the command is safe.
+    #[cfg(target_os = "macos")]
+    {
+        let existing: Vec<&String> = file_paths
+            .iter()
+            .filter(|p| std::path::Path::new(p).exists())
+            .collect();
+        if !existing.is_empty() {
+            // Build an AppleScript list of POSIX file aliases. Each path
+            // is escaped to defend against quotation marks in filenames.
+            let alias_list: Vec<String> = existing
+                .iter()
+                .map(|p| {
+                    let escaped = p.replace('\\', "\\\\").replace('"', "\\\"");
+                    format!("POSIX file \"{escaped}\" as alias", escaped = escaped)
+                })
+                .collect();
+            let script = format!(
+                "tell application \"Finder\"\ndelete {{{}}}\nend tell",
+                alias_list.join(", ")
+            );
+            let output = std::process::Command::new("osascript")
+                .args(["-e", &script])
+                .output()
+                .map_err(|e| format!("Failed to invoke osascript: {e}"))?;
+            if !output.status.success() {
+                let stderr = String::from_utf8_lossy(&output.stderr);
+                return Err(format!("Failed to move files to Trash: {stderr}"));
+            }
+        }
+    }
+
+    // 2. Remove every trace of these files from SQLite in a single
+    //    transaction. We delete by exact `file_path` match because the
+    //    UI always passes absolute paths sourced from the same DB.
+    let conn = get_db_connection(&app)?;
+    let tx = conn
+        .unchecked_transaction()
+        .map_err(|e| format!("Failed to begin transaction: {e}"))?;
+    for path in &file_paths {
+        tx.execute("DELETE FROM faces WHERE file_path = ?1", params![path])
+            .map_err(|e| format!("delete faces: {e}"))?;
+        tx.execute(
+            "DELETE FROM photo_metadata WHERE file_path = ?1",
+            params![path],
+        )
+        .map_err(|e| format!("delete photo_metadata: {e}"))?;
+        tx.execute("DELETE FROM photo_tags WHERE file_path = ?1", params![path])
+            .map_err(|e| format!("delete photo_tags: {e}"))?;
+        tx.execute(
+            "DELETE FROM scanned_files WHERE file_path = ?1",
+            params![path],
+        )
+        .map_err(|e| format!("delete scanned_files: {e}"))?;
+    }
+    tx.commit().map_err(|e| format!("commit failed: {e}"))?;
+
+    log::info!(
+        "Trashed {} photo file(s) and removed their DB records",
+        file_paths.len()
+    );
+    Ok(file_paths.len() as u64)
 }
 
 /// Request a graceful cancellation of the in-progress scan. The current file

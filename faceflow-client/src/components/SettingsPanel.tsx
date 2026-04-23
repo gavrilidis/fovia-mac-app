@@ -62,6 +62,75 @@ function readNumber(key: string, fallback: number): number {
   return Number.isFinite(parsed) ? parsed : fallback;
 }
 
+// ---------------------------------------------------------------------------
+// RangeSlider — module-level component (NOT defined inside SettingsPanel).
+//
+// Defining a component inside another component re-creates its identity on
+// every render, which causes React to unmount/remount the underlying
+// <input type="range">. That breaks pointer capture mid-drag and produces
+// the "scroll jump" / "slider jumps back" bug.
+//
+// Strategy:
+//   • Keep the live dragging value in *local* state so parent re-renders
+//     are avoided while the user drags.
+//   • Sync local state down from the parent only when the parent value
+//     changes from the outside (e.g. after Apply / external reset).
+//   • Commit the chosen value upward only on pointer release / blur /
+//     keyboard commit — never on every onChange tick.
+// ---------------------------------------------------------------------------
+interface RangeSliderProps {
+  value: number;
+  min: number;
+  max: number;
+  step: number;
+  title: string;
+  onCommit: (next: number) => void;
+}
+
+const RangeSlider: React.FC<RangeSliderProps> = ({ value, min, max, step, title, onCommit }) => {
+  const [localValue, setLocalValue] = useState(value);
+  const draggingRef = React.useRef(false);
+
+  // Reflect external changes back into the slider while we're not actively
+  // dragging it. Avoids fighting the user mid-drag.
+  useEffect(() => {
+    if (!draggingRef.current) {
+      setLocalValue(value);
+    }
+  }, [value]);
+
+  const commit = useCallback(
+    (next: number) => {
+      draggingRef.current = false;
+      if (next !== value) onCommit(next);
+    },
+    [onCommit, value],
+  );
+
+  return (
+    <input
+      type="range"
+      min={min}
+      max={max}
+      step={step}
+      value={localValue}
+      onPointerDown={() => {
+        draggingRef.current = true;
+      }}
+      onChange={(e) => {
+        draggingRef.current = true;
+        setLocalValue(parseFloat(e.target.value));
+      }}
+      onPointerUp={(e) => commit(parseFloat((e.currentTarget as HTMLInputElement).value))}
+      onPointerCancel={(e) => commit(parseFloat((e.currentTarget as HTMLInputElement).value))}
+      onBlur={(e) => commit(parseFloat(e.currentTarget.value))}
+      onKeyUp={(e) => commit(parseFloat((e.currentTarget as HTMLInputElement).value))}
+      title={title}
+      className="w-full neutral-range"
+    />
+  );
+};
+
 export const SettingsPanel: React.FC<SettingsPanelProps> = ({ onClose, variant = "modal" }) => {
   const { t, locale, setLocale, theme, setTheme } = useI18n();
   const isWindow = variant === "window";
@@ -405,15 +474,13 @@ export const SettingsPanel: React.FC<SettingsPanelProps> = ({ onClose, variant =
                     {draftDetection.toFixed(2)}
                   </span>
                 </div>
-                <input
-                  type="range"
+                <RangeSlider
                   min={0.1}
                   max={0.95}
                   step={0.05}
                   value={draftDetection}
-                  onChange={(e) => setDraftDetection(parseFloat(e.target.value))}
+                  onCommit={setDraftDetection}
                   title={t("detection_threshold")}
-                  className="w-full neutral-range"
                 />
                 <p className="mt-2 text-[11px] leading-relaxed text-fg-muted/80">
                   {t("settings_detection_help")}
@@ -428,15 +495,13 @@ export const SettingsPanel: React.FC<SettingsPanelProps> = ({ onClose, variant =
                     {draftCluster.toFixed(2)}
                   </span>
                 </div>
-                <input
-                  type="range"
+                <RangeSlider
                   min={0.4}
                   max={0.95}
                   step={0.01}
                   value={draftCluster}
-                  onChange={(e) => setDraftCluster(parseFloat(e.target.value))}
+                  onCommit={setDraftCluster}
                   title={t("cluster_similarity")}
-                  className="w-full neutral-range"
                 />
                 <p className="mt-2 text-[11px] leading-relaxed text-fg-muted/80">
                   {t("settings_cluster_help")}
@@ -453,15 +518,13 @@ export const SettingsPanel: React.FC<SettingsPanelProps> = ({ onClose, variant =
                     {draftQuality.toFixed(2)}
                   </span>
                 </div>
-                <input
-                  type="range"
+                <RangeSlider
                   min={0.4}
                   max={0.9}
                   step={0.01}
                   value={draftQuality}
-                  onChange={(e) => setDraftQuality(parseFloat(e.target.value))}
+                  onCommit={setDraftQuality}
                   title={t("settings_quality_threshold")}
-                  className="w-full neutral-range"
                 />
                 <p className="mt-2 text-[11px] leading-relaxed text-fg-muted/80">
                   {t("settings_quality_help")}
@@ -477,15 +540,13 @@ export const SettingsPanel: React.FC<SettingsPanelProps> = ({ onClose, variant =
                     {Math.round(draftMinFace)} px
                   </span>
                 </div>
-                <input
-                  type="range"
+                <RangeSlider
                   min={40}
                   max={200}
                   step={5}
                   value={draftMinFace}
-                  onChange={(e) => setDraftMinFace(parseFloat(e.target.value))}
+                  onCommit={setDraftMinFace}
                   title={t("settings_min_face_size")}
-                  className="w-full neutral-range"
                 />
                 <p className="mt-2 text-[11px] leading-relaxed text-fg-muted/80">
                   {t("settings_min_face_help")}
@@ -693,7 +754,7 @@ export const SettingsPanel: React.FC<SettingsPanelProps> = ({ onClose, variant =
       onClick={onClose}
     >
       <div
-        className="glass flex h-[500px] w-[91rem] max-w-[96vw] flex-col overflow-hidden rounded-2xl shadow-2xl"
+        className="glass flex max-h-[80vh] w-[76rem] max-w-[96vw] flex-col overflow-hidden rounded-2xl shadow-2xl"
         onClick={(e) => e.stopPropagation()}
       >
         {inner}
